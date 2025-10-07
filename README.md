@@ -5,7 +5,7 @@ Advanced Database Systems Repository
 python_files folder 
 - etl_file.py
 - tsv_files folder
-	  - .tsv files 
+	- .tsv files // did not include tsv files because of the size
 
 ### Link to the google drive:
 - https://drive.google.com/drive/folders/1ytW-lEq-mltdLuOGlRZpMbgPrdtISLFl?usp=sharing
