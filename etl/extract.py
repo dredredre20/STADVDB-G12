@@ -14,11 +14,11 @@ def extract_title():
     return title_df
 
 def extract_crew():
-    crew_df = pd.read_sql_query(f"SELECT tp.nconst, category, primaryname, birthyear, deathyear FROM title_principals tp  JOIN name_basics nb ON tp.nconst  = nb.nconst", engine)
+    crew_df = pd.read_sql_query(f"SELECT nconst, primaryname, birthyear, deathyear FROM name_basics", engine)
     return crew_df
 
 def extract_title_crew():
-    title_crew_df = pd.read_sql_query(f"SELECT tb.tconst, nconst FROM title_basics tb JOIN title_principals tp ON tb.tconst = tp.tconst", engine)
+    title_crew_df = pd.read_sql_query(f"SELECT tconst, nconst, category FROM title_principals", engine)
     return title_crew_df
 
 def extract_genre():
@@ -46,4 +46,3 @@ def extract_title_genre():
     title_genre_df = title_genre_df.drop_duplicates(subset=['tconst', 'genres']).reset_index(drop=True)
 
     return title_genre_df
-

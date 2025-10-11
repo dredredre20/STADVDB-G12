@@ -1,37 +1,50 @@
 import psycopg2
+import os
+from dotenv import load_dotenv
 from sqlalchemy import create_engine
+
+# Load environment variables from .env
+load_dotenv()
+
+# Get values
+DB_USER = os.getenv("DB_USER")
+DB_PASSWORD = os.getenv("DB_PASSWORD")
+DB_HOST = os.getenv("DB_HOST")
+DB_PORT = os.getenv("DB_PORT")
+SRC_DB = os.getenv("SRC_DB")
+DW_DB = os.getenv("DW_DB")
 
 # Establish source database connection
 def get_src_connection():
     return psycopg2.connect(
-        database = "<src_dbName>", # replace with source db name
-        user = "postgres", 
-        password = "<password>",  # replace with your actual password
-        host = "localhost",
-        port = 5432
+        database = SRC_DB,
+        user = DB_USER, 
+        password = DB_PASSWORD,
+        host = DB_HOST,
+        port = DB_PORT
     )
 
 # Establish data warehouse connection
 def get_dw_connection():
     return psycopg2.connect(
-        database = "warehouseName", # replace with local data warehouse name
-        user = "postgres",
-        password = "<password>", # replace with your actual password
-        host = "localhost",
-        port = 5432
+        database = DW_DB,
+        user = DB_USER, 
+        password = DB_PASSWORD,
+        host = DB_HOST,
+        port = DB_PORT
     )
 
 
 # New SQLAlchemy engine for src db
 def get_src_engine():
     engine = create_engine(
-        'postgresql+psycopg2://postgres:<password>@localhost:5432/<src_dbName>' # replace passoword and database name accordingly
+        f'postgresql+psycopg2://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{SRC_DB}' # replace passoword and database name accordingly
     )
     return engine
 
 # New SQLAlchemy engine for the data warehouse
 def get_dw_engine():
     engine = create_engine(
-        'postgresql+psycopg2://postgres:<password>@localhost:5432/<warehouseName>' # replace password and database name accordingly
+        f'postgresql+psycopg2://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DW_DB}' # replace password and database name accordingly
     )
     return engine
