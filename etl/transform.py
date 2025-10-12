@@ -92,5 +92,51 @@ def transform_genre(genre_df):
 
     return genre_df
 
+def transform_bridge_title_crew(title_crew_df):
+    # Transform to dataframe
+    title_crew_df = extract_title_crew()
+
+    # Drop duplicates and NaN values
+    title_crew_df = title_crew_df.drop_duplicates(subset=['tconst', 'nconst'])
+    title_crew_df = title_crew_df.dropna(subset=['tconst', 'nconst'], how='any')
+
+    return title_crew_df
+
+def transform_bridge_title_genre(title_genre_df, genre_df):
+    # Transform to dataframes
+    title_genre_df = extract_title_genre()
+    genre_df = transform_genre(genre_df)
+
+    # Clean up text fields and lowercase
+    title_genre_df['genres'] = title_genre_df['genres'].str.strip().str.lower()
+
+    # Merge the two dataframes to get the genre_id
+    title_genre_df = title_genre_df.merge(genre_df, left_on='genres', right_on='genre', how='inner')
+
+    # Keep only necessary columns
+    title_genre_df = title_genre_df[['tconst', 'genre_id']]
+
+    # Drop duplicates and NaN values
+    title_genre_df = title_genre_df.drop_duplicates(subset=['tconst', 'genre_id']).reset_index(drop=True)
+    title_genre_df = title_genre_df.dropna(subset=['tconst', 'genre_id'], how='any')
+
+    return title_genre_df
+
+def transform_all():
+    
+    # Dictionary to hold all transformations
+    transformations = {
+        'ratings':transform_ratings(),
+        'title' : transform_title(),
+        'crew' : transform_crew(),
+        'genre' : transform_genre(),
+        'bridge_title_crew' : transform_bridge_title_crew(),
+        'bridge_title_genre' : transform_bridge_title_genre()
+    }
+
+    return transformations
+
+
+
 
 
