@@ -1,4 +1,5 @@
--- Extract and transform title_genre_bridge
+-- Extract, transform, and load title_genre_bridge
+INSERT INTO title_genre_bridge (title_id, genre_id)
 WITH genres AS (
     SELECT DISTINCT
         TRIM(UNNEST(STRING_TO_ARRAY(genres, ','))) AS genre
@@ -23,4 +24,4 @@ SELECT DISTINCT
     gi.genre_id
 FROM titles t
 JOIN genre_with_id gi ON t.genre = gi.genre
-ORDER BY tconst
+ORDER BY tconst;

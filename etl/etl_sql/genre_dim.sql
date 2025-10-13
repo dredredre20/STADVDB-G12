@@ -1,4 +1,5 @@
--- Extract and transform genre dim
+-- Extract, transform, and load genre_dim
+INSERT INTO genre_dim (genre_id, genre_name)
 WITH genres AS (
     SELECT DISTINCT
         TRIM(UNNEST(STRING_TO_ARRAY(genres, ','))) AS genre
