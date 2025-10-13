@@ -2,14 +2,15 @@
 WITH cleaned_title AS (
     SELECT DISTINCT
         tb.tconst,
-        tb.titletype,
         COALESCE(tb.primarytitle, tb.originaltitle) AS title_name,
-        tb.startyear::INT AS startyear,
-        tb.endyear::INT AS endyear,
+        tb.titletype,
         tb.runtimeminutes::INT AS runtimeminutes,
-        COALESCE(tb.genres, 'Unknown') AS genres,
+        tb.startyear::INT AS startyear,
+        tb.isadult,
+        te.parenttconst,
         te.seasonnumber,
-        te.episodenumber
+        te.episodenumber,
+        tb.endyear::INT AS endyear
     FROM title_basics tb
     LEFT JOIN title_episode te ON tb.tconst = te.tconst
     WHERE tb.tconst IS NOT NULL
@@ -17,4 +18,4 @@ WITH cleaned_title AS (
 )
 SELECT *
 FROM cleaned_title
-WHERE genres = 'Unknown'
+ORDER BY tconst

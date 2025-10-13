@@ -1,4 +1,4 @@
--- Extract and transform title_genre
+-- Extract and transform title_genre_bridge
 WITH genres AS (
     SELECT DISTINCT
         TRIM(UNNEST(STRING_TO_ARRAY(genres, ','))) AS genre
@@ -23,3 +23,4 @@ SELECT DISTINCT
     gi.genre_id
 FROM titles t
 JOIN genre_with_id gi ON t.genre = gi.genre
+ORDER BY tconst

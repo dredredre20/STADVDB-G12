@@ -1,7 +1,7 @@
 -- Extract and transform genre dim
 WITH genres AS (
     SELECT DISTINCT
-        TRIM(unnest(string_to_array(genres, ','))) AS genre
+        TRIM(UNNEST(STRING_TO_ARRAY(genres, ','))) AS genre
     FROM title_basics
     WHERE genres IS NOT NULL
 )
