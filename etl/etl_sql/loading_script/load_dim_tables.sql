@@ -36,14 +36,14 @@ WITH cleaned_crew AS (
 )
 SELECT 
 	cc.nconst, 
-	COALESCE(ctc.category, 'Extra') AS category,
+	COALESCE(tp.category, 'Extra') AS category,
 	cc.primaryname, 
-	CASE WHEN birthyear IS NOT NULL THEN make_date(birthyear, 1, 1) END,
-    CASE WHEN deathyear IS NOT NULL THEN make_date(deathyear, 1, 1) END
+	CASE WHEN cc.birthyear IS NOT NULL THEN make_date(cc.birthyear, 1, 1) END,
+    CASE WHEN cc.deathyear IS NOT NULL THEN make_date(cc.deathyear, 1, 1) END
 FROM cleaned_crew cc
--- BRUH HIND AKO SURE
-join cleaned_title_crew ctc on  cc.nconst = ctc.nconst
-where nconst is not null;
+-- Double Check this
+left join title_principals tp on  cc.nconst = tp.nconst
+where cc.nconst is not null;
 
 
 
