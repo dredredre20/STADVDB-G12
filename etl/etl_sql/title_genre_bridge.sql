@@ -1,18 +1,6 @@
 -- Extract, transform, and load title_genre_bridge
-INSERT INTO title_genre_bridge (title_id, genre_id)
-WITH genres AS (
-    SELECT DISTINCT
-        TRIM(UNNEST(STRING_TO_ARRAY(genres, ','))) AS genre
-    FROM title_basics
-    WHERE genres IS NOT NULL
-),
-genre_with_id AS (
-	SELECT
-		genre,
-		ROW_NUMBER() OVER (ORDER BY genres) AS genre_id
-	FROM genres
-),
-titles AS (
+INSERT into title_genre_bridge (title_id, genre_id)
+WITH titles AS (
 	SELECT 
 	    tconst,
 	    TRIM(unnest(string_to_array(genres, ','))) AS genre
@@ -21,7 +9,7 @@ titles AS (
 )
 SELECT DISTINCT
     t.tconst,
-    gi.genre_id
+    gd.genre_id
 FROM titles t
-JOIN genre_with_id gi ON t.genre = gi.genre
+JOIN genre_dim gd ON t.genre = gd.genre_name
 ORDER BY tconst;

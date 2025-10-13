@@ -4,17 +4,23 @@ WITH cleaned_title_crew AS (
     SELECT DISTINCT
         tp.tconst,
         tp.nconst,
-		  CASE
-	    	WHEN tp.category IN ('actor','actress','archive_footage','archive_sound','casting_director',
-	                         'cinematographer','composer','director','editor','producer',
-	                         'production_designer','self','writer')
-	    	THEN tp.category::film_role
-	   	 	ELSE NULL
-	  		END AS job_category
-  	FROM title_principals tp
-    where tp.tconst is not null and
-    		tp.nconst IS NOT null
+        CASE
+            WHEN tp.category IN ('actor','actress','archive_footage','archive_sound','casting_director',
+                                 'cinematographer','composer','director','editor','producer',
+                                 'production_designer','self','writer')
+            THEN tp.category::film_role
+            ELSE NULL
+        END AS job_category
+    FROM title_principals tp
+    WHERE tp.tconst IS NOT NULL 
+      AND tp.nconst IS NOT NULL
 )
-SELECT *
-FROM cleaned_title_crew
-WHERE tconst is not null and nconst is not null;
+SELECT 
+    ctc.tconst,
+    ctc.nconst,
+    ctc.job_category
+FROM cleaned_title_crew ctc
+JOIN crew_dim cd 
+    ON cd.crew_id = ctc.nconst
+WHERE ctc.job_category IS NOT NULL
+ORDER BY ctc.tconst;
