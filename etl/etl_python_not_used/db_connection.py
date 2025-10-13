@@ -38,13 +38,13 @@ def get_dw_connection():
 # New SQLAlchemy engine for src db
 def get_src_engine():
     engine = create_engine(
-        f'postgresql+psycopg2://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{SRC_DB}' # replace passoword and database name accordingly
+        f'postgresql+psycopg2://postgres:silk-Song17@localhost:5432/IMDb-db' # replace passoword and database name accordingly
     )
     return engine
 
 # New SQLAlchemy engine for the data warehouse
 def get_dw_engine():
     engine = create_engine(
-        f'postgresql+psycopg2://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DW_DB}' # replace password and database name accordingly
+        f'postgresql+psycopg2://postgres:silk-Song17@localhost:5432/MCO_STADVDB' # replace password and database name accordingly
     )
     return engine
