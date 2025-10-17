@@ -33,6 +33,43 @@ order by g.genre_name, t.title_type;
 -- [SLICE AND DICE] --
 -- What are the top-rated titles for each genre?
 
+-- [DICE] --
+-- Top-Rated Romance, Comedy, and Drama Movies Since 2010 (≥100,000 Votes)
+SELECT 
+    t.title_name,
+    t.title_type,
+    g.genre_name,
+    t.start_year,
+    f.average_rating,
+    f.num_votes
+FROM rating_fact f
+JOIN title_dim t 
+    ON f.title_id = t.title_id
+JOIN title_genre_bridge tg 
+    ON t.title_id = tg.title_id
+JOIN genre_dim g 
+    ON tg.genre_id = g.genre_id
+WHERE 
+    t.title_type = 'movie'
+    AND g.genre_name IN ('Romance', 'Comedy', 'Drama')
+    AND t.start_year >= '2010-01-01'
+    AND f.num_votes >= 100000
+ORDER BY f.average_rating DESC, f.num_votes DESC
+LIMIT 30;
+
+-- [PIVOT] --
+-- Show the average rating for each genre, split by title type (movie, series, short).
+SELECT g.genre_name,
+    ROUND(AVG(CASE WHEN t.title_type = 'movie' THEN r.average_rating END), 2) AS movie,
+    ROUND(AVG(CASE WHEN t.title_type IN ('tvSeries', 'tvMiniSeries') THEN r.average_rating END), 2) AS series,
+    ROUND(AVG(CASE WHEN t.title_type = 'short' THEN r.average_rating END), 2) AS short
+FROM rating_fact r
+JOIN title_dim t USING (title_id)
+JOIN title_genre_bridge tg USING (title_id)
+JOIN genre_dim g USING (genre_id)
+GROUP BY g.genre_name
+ORDER BY g.genre_name;
+
 -- [SLICE + DRILL-DOWN] -- 
 -- Which actors or actresses are associated with the highest-rated titles?
 
