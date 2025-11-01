@@ -39,26 +39,6 @@ WITH ranked_titles_by_rating AS(
     FROM ranked_titles_by_rating rtbp
     WHERE title_ranking <= 3;
 
-WITH ranked_titles_by_rating AS(
-        SELECT  gd.genre_name,
-                td.title_name,
-                rf.average_rating,
-                ROW_NUMBER() OVER (PARTITION BY genre_name ORDER BY rf.average_rating DESC) AS title_ranking,
-                rf.num_votes
-        FROM genre_dim gd
-        JOIN title_genre_bridge tgb ON gd.genre_id = tgb.genre_id 
-        JOIN rating_fact rf ON tgb.title_id = rf.title_id 
-        JOIN title_dim td ON rf.title_id = td.title_id 
-        WHERE title_type = 'movie'
-            AND num_votes > 100 -- to ensure it has adequate reviews;
-    )
-    SELECT  rtbp.genre_name,
-            rtbp.title_name,
-            rtbp.average_rating,
-            rtbp.num_votes
-    FROM ranked_titles_by_rating rtbp
-    WHERE title_ranking <= 3;
-
 WITH ranked_titles_by_popularity AS(
         SELECT  gd.genre_name,
                 td.title_name,
