@@ -128,8 +128,8 @@ WITH ranked_titles_by_rating AS (
                 rd.num_votes
         FROM genre_dim gd
         JOIN title_genre_bridge tgb ON gd.genre_id = tgb.genre_id 
-        JOIN rating_dim rd ON tgb.title_id = rd.title_id 
-        JOIN title_fact tf ON rd.title_id = tf.title_id 
+        join title_fact tf on tf.title_id = tgb.title_id
+        join rating_dim rd on rd.rating_id = tf.rating_id
         WHERE title_type = 'movie'
             AND num_votes > 100
     )
@@ -149,8 +149,8 @@ WITH ranked_titles_by_popularity AS (
                 rd.average_rating
         FROM genre_dim gd
         JOIN title_genre_bridge tgb ON gd.genre_id = tgb.genre_id 
-        JOIN rating_dim rd ON tgb.title_id = rd.title_id 
-        JOIN title_fact tf ON rd.title_id = tf.title_id 
+        join title_fact tf on tf.title_id = tgb.title_id
+        join rating_dim rd on rd.rating_id = tf.rating_id
     )
     SELECT  rtbp.genre_name,
             rtbp.title_name,
@@ -202,7 +202,7 @@ SELECT
   tf.title_type,
   ROUND(AVG(rd.average_rating), 3) AS average_rating_per_level
 FROM title_fact tf 
-JOIN rating_dim rd ON tf.title_id = rd.title_id  
+JOIN rating_dim rd ON tf.rating_id = rd.rating_id  
 JOIN title_genre_bridge tgb ON tf.title_id = tgb.title_id  
 JOIN genre_dim gd ON tgb.genre_id = gd.genre_id  
 GROUP BY ROLLUP (gd.genre_name, tf.title_type)
@@ -214,7 +214,7 @@ SELECT
   tf.title_type,
   SUM(rd.num_votes) AS num_votes_per_level
 FROM title_fact tf 
-JOIN rating_dim rd ON tf.title_id = rd.title_id  
+JOIN rating_dim rd ON tf.rating_id = rd.rating_id  
 JOIN title_genre_bridge tgb ON tf.title_id = tgb.title_id  
 JOIN genre_dim gd ON tgb.genre_id = gd.genre_id  
 GROUP BY ROLLUP (gd.genre_name, tf.title_type)
