@@ -199,24 +199,22 @@ order by gd.genre_name;
 -- By rating
 SELECT  
   gd.genre_name,
-  tf.title_type,
   ROUND(AVG(rd.average_rating), 3) AS average_rating_per_level
 FROM title_fact tf 
 JOIN rating_dim rd ON tf.rating_id = rd.rating_id  
 JOIN title_genre_bridge tgb ON tf.title_id = tgb.title_id  
 JOIN genre_dim gd ON tgb.genre_id = gd.genre_id  
-GROUP BY ROLLUP (gd.genre_name, tf.title_type)
-ORDER BY gd.genre_name, tf.title_type;
+GROUP BY ROLLUP (gd.genre_name)
+ORDER BY gd.genre_name;
 
 -- By popularity
 SELECT  
   gd.genre_name,
-  tf.title_type,
   SUM(rd.num_votes) AS num_votes_per_level
 FROM title_fact tf 
 JOIN rating_dim rd ON tf.rating_id = rd.rating_id  
 JOIN title_genre_bridge tgb ON tf.title_id = tgb.title_id  
 JOIN genre_dim gd ON tgb.genre_id = gd.genre_id  
-GROUP BY ROLLUP (gd.genre_name, tf.title_type)
-ORDER BY gd.genre_name, tf.title_type;
+GROUP BY ROLLUP (gd.genre_name)
+ORDER BY gd.genre_name;
 
