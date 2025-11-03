@@ -20,7 +20,7 @@ where tf.title_name is not null and
 		rd.num_votes is not null and
 		rd.average_rating is not null and 
 		tf.title_type is not null
-group by cube (gd.genre_name, tf.title_typeW)
+group by cube (gd.genre_name, tf.title_type)
 order by gd.genre_name;
 
 --==========================================================================
@@ -129,3 +129,24 @@ JOIN genre_dim gd ON tgb.genre_id = gd.genre_id
 GROUP BY ROLLUP (gd.genre_name)
 ORDER BY gd.genre_name;
 
+--==========================================================================
+-- Statistical Analysis (MAD)
+
+with median as ( 
+	select 
+		tf.title_type,
+		PERCENTILE_CONT(0.5) within group (order by rd.average_rating) as median_rating
+	from title_fact tf
+	join rating_dim rd on tf.rating_id = rd.rating_id
+	where rd.average_rating is not null and tf.title_type is not null
+	group by tf.title_type
+) 
+select 
+	tf.title_type, 
+	AVG(ABS(rd.average_rating - m.median_rating)) as mad_median
+from title_fact tf
+join rating_dim rd on tf.rating_id = rd.rating_id 
+join median m on m.title_type = tf.title_type
+where rd.average_rating is not null and tf.title_type is not null
+group by tf.title_type
+order by mad_median;
