@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Transaction Builder - Node <%= nodeId %></title>
+    <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+
+<h2>Transaction Builder — Node <%= nodeId %></h2>
+
+<label>Node URL:</label>
+<input id="nodeUrl" value="http://localhost:300<%= nodeId %>">
+
+<hr>
+
+<h3>Create Review</h3>
+
+<label>tconst:</label>
+<input id="movieId" placeholder="tt1234567">
+
+<label>Rating:</label>
+<input id="rating" type="number" min="1" max="10">
+
+<button onclick="createReviewTx()">Create Transaction</button>
+
+<pre id="output"></pre>
+
+<script src="/app.js"></script>
+</body>
+</html>

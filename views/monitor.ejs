@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Transaction Monitor - Node <%= nodeId %></title>
+    <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+
+<h2>Transaction Monitor — Node <%= nodeId %></h2>
+
+<label>Node URL:</label>
+<input id="nodeUrl" value="http://localhost:300<%= nodeId %>">
+<button onclick="refreshLogs()">Refresh Now</button>
+
+<pre id="logBox"></pre>
+
+<script src="/app.js"></script>
+</body>
+</html>
