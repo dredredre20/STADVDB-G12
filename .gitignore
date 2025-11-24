@@ -1,4 +1,4 @@
 __pycache__/
 *.pyc
 .env
-__node_modules__/
+node_modules/
