@@ -110,7 +110,9 @@ function goIndex() {
 }
 
 async function refreshLogs() {
-    const res = await fetch("/logs");
+    const url = getNodeUrl();
+    document.getElementById("logBox").textContent = "";
+    const res = await fetch(url + "/logs");
     const data = await res.json();
     document.getElementById("logBox").textContent =
         JSON.stringify(data, null, 2);
