@@ -8,6 +8,11 @@ async function createReviewTx() {
     const movieId = document.getElementById("movieId").value;
     const rating = document.getElementById("rating").value;
 
+    if (rating < 1 || rating > 10) {
+        alert("Rating must be between 1 and 10.");
+        return;
+    }
+    
     const action = `ADD_REVIEW: tconst=${movieId}, rating=${rating}`;
 
     const res = await fetch(url + "/log", {
@@ -16,7 +21,10 @@ async function createReviewTx() {
         body: JSON.stringify({ action })
     });
 
-    logTo("output", await res.json());
+    await res.json()
+    if (res.ok) {
+        logTo("output", { status: `Review transaction for ${movieId} created successfully.` });
+    }
 }
 
 async function refreshLogs() {
@@ -29,3 +37,12 @@ async function refreshLogs() {
 if (document.getElementById("logBox")) {
     setInterval(refreshLogs, 1000);
 }
+
+function redirectToMonitor() {
+    window.location.href = "/monitor";
+}
+
+function redirectToIndex() {
+    window.location.href = "/";
+}
+
