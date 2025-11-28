@@ -9,6 +9,7 @@ function writeOutput(data) {
 
 // --- APPLY SETTINGS TO NODE ---
 async function applySettings() {
+    print("Applying settings...");
     const url = getNodeUrl();
     const isolation = document.getElementById("isolationLevel").value;
     const lockMode = document.getElementById("lockMode").value;
