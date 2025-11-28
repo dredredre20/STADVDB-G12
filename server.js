@@ -29,9 +29,9 @@ function log(msg) {
 // Collect logs from all nodes (Node 1 will be the aggregator)
 app.get("/all-logs", async (req, res) => {
     const nodeUrls = [
-        "http://ccscloud.dlsu.edu.ph:60148",
-        "http://ccscloud.dlsu.edu.ph:60149",
-        "http://ccscloud.dlsu.edu.ph:60150"
+        "http://10.2.14.48:60148",
+        "http://10.2.14.49:60149",
+        "http://10.2.14.50:60150"
     ];
 
     let combined = [];
