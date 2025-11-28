@@ -26,6 +26,31 @@ function log(msg) {
     console.log(`[Node ${NODE_ID}]`, msg);
 }
 
+// Collect logs from all nodes (Node 1 will be the aggregator)
+app.get("/all-logs", async (req, res) => {
+    const nodeUrls = [
+        "http://ccscloud.dlsu.edu.ph:60148",
+        "http://ccscloud.dlsu.edu.ph:60149",
+        "http://ccscloud.dlsu.edu.ph:60150"
+    ];
+
+    let combined = [];
+
+    for (const url of nodeUrls) {
+        try {
+            const r = await fetch(url + "/logs");
+            const j = await r.json();
+            combined = combined.concat(j);
+        } catch (err) {
+            combined.push({ node: url, time: new Date().toISOString(), msg: "LOG_FETCH_FAILED: " + err.message });
+        }
+    }
+
+    combined.sort((a, b) => new Date(a.time) - new Date(b.time));
+    res.send({ ok: true, logs: combined });
+});
+
+
 // --- MySQL connection ---
 
 let pool;
@@ -97,12 +122,30 @@ app.post("/tx/begin", (req, res) => {
     txs[txId] = {
         txId,
         isolation: isolation || config.isolation,
-        buffered: {}
+        buffered: {},
+        startTime: Date.now(),
+        status: "active"
     };
 
     log(`BEGIN tx=${txId} iso=${txs[txId].isolation}`);
 
     res.send({ ok: true });
+});
+
+// Active transactions for monitor/timeline
+app.get("/active", (req, res) => {
+    try {
+        const active = Object.values(txs).filter(t => t.status === "active").map(t => ({
+            txId: t.txId,
+            node: NODE_ID,
+            startTime: t.startTime,
+            isolation: t.isolation
+        }));
+
+        res.send({ ok: true, active });
+    } catch (err) {
+        res.status(500).send({ ok: false, error: err.message });
+    }
 });
 
 // READ

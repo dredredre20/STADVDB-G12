@@ -163,3 +163,75 @@ async function refreshLogs() {
     document.getElementById("logBox").textContent =
         JSON.stringify(data, null, 2);
 }
+
+async function loadSchedule() {
+    const url = document.getElementById("nodeUrl").value;
+    const table = document.getElementById("scheduleTable");
+
+    table.innerHTML = "<tr><td>Loading schedule...</td></tr>";
+
+    const res = await fetch(url + "/all-logs");
+    const data = await res.json();
+
+    const logs = data.logs || [];
+
+    // Extract transaction IDs
+    const txIds = [...new Set(logs.map(l => {
+        const match = /tx=([A-Za-z0-9]+)/.exec(l.msg);
+        return match ? match[1] : null;
+    }).filter(Boolean))];
+
+    // Build table header
+    let html = "<tr><th>Time</th>";
+    txIds.forEach(tx => html += `<th>${tx}</th>`);
+    html += "</tr>";
+
+    // Build rows
+    logs.forEach((entry, index) => {
+        const timeLabel = "t" + (index + 1);
+
+        html += `<tr><td>${timeLabel}</td>`;
+
+        txIds.forEach(tx => {
+            const match = /tx=([A-Za-z0-9]+)/.exec(entry.msg);
+            const txInLog = match ? match[1] : null;
+
+            if (txInLog === tx) {
+                html += `<td>${entry.msg}</td>`;
+            } else {
+                html += "<td></td>";
+            }
+        });
+
+        html += "</tr>";
+    });
+
+    table.innerHTML = html;
+}
+
+function checkScheduleAvailability() {
+    const url = document.getElementById("nodeUrl").value;
+    const scheduleBtn = document.getElementById("scheduleBtn");
+    const warning = document.getElementById("scheduleWarning");
+
+    const isNode1 = url.includes("60148");
+
+    if (!isNode1) {
+        scheduleBtn.disabled = true;
+        warning.textContent = "Schedule viewer only works on Node 1 (Central Aggregator)";
+        document.getElementById("scheduleTable").innerHTML = "";
+    } else {
+        scheduleBtn.disabled = false;
+        warning.textContent = "";
+    }
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+    const nodeSelect = document.getElementById("nodeUrl");
+    nodeSelect.addEventListener("change", checkScheduleAvailability);
+
+    // Run once on page load
+    checkScheduleAvailability();
+});
+
+
