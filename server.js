@@ -27,16 +27,29 @@ function log(msg) {
 }
 
 // --- MySQL connection ---
+
 let pool;
+
 (async () => {
-    pool = mysql.createPool({
-        host: process.env.DB_HOST || "127.0.0.1",
-        user: process.env.DB_USER || "root",
-        password: process.env.DB_PASS || "",
-        database: process.env.DB_NAME || "node_1",
-        waitForConnections: true,
-        connectionLimit: 10,
-    });
+    try {
+        pool = mysql.createPool({
+            host: process.env.DB_HOST,
+            user: process.env.DB_USER,
+            password: process.env.DB_PASS,
+            database: process.env.DB_NAME,
+            waitForConnections: true,
+            connectionLimit: 10,
+            queueLimit: 0
+        });
+
+        // Test connection
+        const conn = await pool.getConnection();
+        console.log(`✓ MySQL connected successfully on Node ${NODE_ID}`);
+        conn.release();
+
+    } catch (err) {
+        console.error("✗ MySQL connection FAILED:", err.message);
+    }
 })();
 
 // --- Transaction state ---
