@@ -3,25 +3,58 @@
 <head>
     <title>Transaction Monitor - Node <%= nodeId %></title>
     <link rel="stylesheet" href="/style.css">
+    <link rel="stylesheet" href="/monitor.css">
 </head>
+
 <body>
 
 <h2>Transaction Monitor — Node <%= nodeId %></h2>
-<div style="display: flex; align-items: center; gap: 10px;">
-    <button onclick="goIndex()">Redirect to Index Page</button>
+
+<button onclick="goIndex()">Back to Control Panel</button>
+<br><br>
+
+<!-- NODE SELECTOR -->
+<div class="section">
+    <h3>Select Node</h3>
+
+    <label><b>Node Url:</b></label>
+    <select id="nodeUrl">
+        <option value="http://ccscloud.dlsu.edu.ph:60148">Node 1 (Central)</option>
+        <option value="http://ccscloud.dlsu.edu.ph:60149">Node 2 (Comedy)</option>
+        <option value="http://ccscloud.dlsu.edu.ph:60150">Node 3 (Drama)</option>
+    </select>
+
+    <button onclick="refreshLogs()">Refresh Logs</button>
 </div>
 
-<br>
-<label>Node Url:</label>
-<select id="nodeUrl">
-    <option value="http://ccscloud.dlsu.edu.ph:60148">Node 1 (Central)</option>
-    <option value="http://ccscloud.dlsu.edu.ph:60149">Node 2 (Comedy)</option>
-    <option value="http://ccscloud.dlsu.edu.ph:60150">Node 3 (Drama)</option>
-</select>
 
-<button onclick="refreshLogs()">Refresh Logs</button>
-<pre id="logBox"></pre>
+<!-- RAW LOGS -->
+<div class="section">
+    <h3>Node Logs</h3>
+    <pre id="logBox"></pre>
+</div>
+<div class="section" id="scheduleSection">
+    <h3>Distributed Transaction Schedule</h3>
+    <button id="scheduleBtn" onclick="loadSchedule()">Load Schedule</button>
+    <br><br>
+    <div id="scheduleWarning" style="color:red; font-weight:bold;"></div>
+    <table id="scheduleTable" border="1" cellpadding="6" 
+           style="border-collapse: collapse; width: 100%; background:white;"></table>
+</div>
+
+
+
+
 
 <script src="/app.js"></script>
+
+<script>
+    function refreshAll() {
+        refreshLogs();
+        loadSchedule();
+    }
+</script>
+
+
 </body>
 </html>

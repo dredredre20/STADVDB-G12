@@ -26,6 +26,7 @@ function log(msg) {
     console.log(`[Node ${NODE_ID}]`, msg);
 }
 
+
 // --- MySQL connection ---
 
 let pool;
@@ -97,12 +98,30 @@ app.post("/tx/begin", (req, res) => {
     txs[txId] = {
         txId,
         isolation: isolation || config.isolation,
-        buffered: {}
+        buffered: {},
+        startTime: Date.now(),
+        status: "active"
     };
 
     log(`BEGIN tx=${txId} iso=${txs[txId].isolation}`);
 
     res.send({ ok: true });
+});
+
+// Active transactions for monitor/timeline
+app.get("/active", (req, res) => {
+    try {
+        const active = Object.values(txs).filter(t => t.status === "active").map(t => ({
+            txId: t.txId,
+            node: NODE_ID,
+            startTime: t.startTime,
+            isolation: t.isolation
+        }));
+
+        res.send({ ok: true, active });
+    } catch (err) {
+        res.status(500).send({ ok: false, error: err.message });
+    }
 });
 
 // READ
@@ -115,9 +134,13 @@ app.post("/tx/read", async (req, res) => {
             [title_id]
         );
 
-        log(`READ tx=${txId} title=${title_id}`);
+        const row = rows[0] || null;
 
-        res.send({ ok: true, row: rows[0] || null });
+        // LOG the rating for schedule viewer
+        const rating = row ? row.average_rating : "null";
+        log(`READ tx=${txId} title=${title_id} rating=${rating}`);
+
+        res.send({ ok: true, row });
     } catch (err) {
         res.status(500).send({ ok: false, error: err.message });
     }
