@@ -73,6 +73,7 @@ async function readTx() {
     const titleId = document.getElementById("titleId").value;
 
     appendLog(`READ tx=${txId} title=${titleId}`);
+
     try {
         const res = await fetch(url + "/tx/read", {
             method: "POST",
@@ -81,11 +82,20 @@ async function readTx() {
         });
 
         const json = await res.json();
+
+        //if row exists show rating and title info
+        if (json.ok && json.row) {
+            const rating = json.row.average_rating;
+            appendLog(`VALUE tx=${txId} title=${titleId} rating=${rating}`);
+        }
+
         appendLog(json);
+
     } catch (err) {
         appendLog({ ok: false, error: err.message });
     }
 }
+
 
 async function updateTx() {
     const url = getNodeUrl();
