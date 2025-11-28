@@ -165,32 +165,54 @@ async function refreshLogs() {
 }
 
 async function loadSchedule() {
-    const url = document.getElementById("nodeUrl").value;
     const table = document.getElementById("scheduleTable");
 
-    table.innerHTML = "<tr><td>Loading schedule...</td></tr>";
+    table.innerHTML = "<tr><td>Loading distributed logs...</td></tr>";
 
-    const res = await fetch(url + "/all-logs");
-    const data = await res.json();
+    // The 3 node URLs
+    const nodeUrls = [
+        "http://ccscloud.dlsu.edu.ph:60148",
+        "http://ccscloud.dlsu.edu.ph:60149",
+        "http://ccscloud.dlsu.edu.ph:60150"
+    ];
 
-    const logs = data.logs || [];
+    let allLogs = [];
 
-    // Extract transaction IDs
-    const txIds = [...new Set(logs.map(l => {
-        const match = /tx=([A-Za-z0-9]+)/.exec(l.msg);
-        return match ? match[1] : null;
-    }).filter(Boolean))];
+    // Fetch logs from each node
+    for (const url of nodeUrls) {
+        try {
+            const res = await fetch(url + "/logs");
+            const data = await res.json();
 
-    // Build table header
+            // Attach node id to logs
+            data.forEach(log => log.nodeUrl = url);
+
+            allLogs = allLogs.concat(data);
+        } catch (err) {
+            console.error("Failed to fetch logs from:", url, err);
+        }
+    }
+
+    // Sort all logs by timestamp
+    allLogs.sort((a, b) => new Date(a.time) - new Date(b.time));
+
+    // Extract txIds
+    const txIds = [...new Set(
+        allLogs.map(l => {
+            const match = /tx=([A-Za-z0-9]+)/.exec(l.msg);
+            return match ? match[1] : null;
+        }).filter(Boolean)
+    )];
+
+    // Build header
     let html = "<tr><th>Time</th>";
     txIds.forEach(tx => html += `<th>${tx}</th>`);
     html += "</tr>";
 
     // Build rows
-    logs.forEach((entry, index) => {
-        const timeLabel = "t" + (index + 1);
-
-        html += `<tr><td>${timeLabel}</td>`;
+    allLogs.forEach((entry, index) => {
+        const t = "t" + (index + 1);
+        html += `<tr><td>${t}</td>`;
 
         txIds.forEach(tx => {
             const match = /tx=([A-Za-z0-9]+)/.exec(entry.msg);
@@ -208,6 +230,7 @@ async function loadSchedule() {
 
     table.innerHTML = html;
 }
+
 
 function checkScheduleAvailability() {
     const url = document.getElementById("nodeUrl").value;

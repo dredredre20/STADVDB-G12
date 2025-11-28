@@ -26,30 +26,6 @@ function log(msg) {
     console.log(`[Node ${NODE_ID}]`, msg);
 }
 
-// Collect logs from all nodes (Node 1 will be the aggregator)
-app.get("/all-logs", async (req, res) => {
-    const nodeUrls = [
-        "http://10.2.14.48:60148",
-        "http://10.2.14.49:60149",
-        "http://10.2.14.50:60150"
-    ];
-
-    let combined = [];
-
-    for (const url of nodeUrls) {
-        try {
-            const r = await fetch(url + "/logs");
-            const j = await r.json();
-            combined = combined.concat(j);
-        } catch (err) {
-            combined.push({ node: url, time: new Date().toISOString(), msg: "LOG_FETCH_FAILED: " + err.message });
-        }
-    }
-
-    combined.sort((a, b) => new Date(a.time) - new Date(b.time));
-    res.send({ ok: true, logs: combined });
-});
-
 
 // --- MySQL connection ---
 
