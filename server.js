@@ -134,9 +134,13 @@ app.post("/tx/read", async (req, res) => {
             [title_id]
         );
 
-        log(`READ tx=${txId} title=${title_id}`);
+        const row = rows[0] || null;
 
-        res.send({ ok: true, row: rows[0] || null });
+        // LOG the rating for schedule viewer
+        const rating = row ? row.average_rating : "null";
+        log(`READ tx=${txId} title=${title_id} rating=${rating}`);
+
+        res.send({ ok: true, row });
     } catch (err) {
         res.status(500).send({ ok: false, error: err.message });
     }
