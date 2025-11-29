@@ -315,7 +315,7 @@ app.post("/tx/commit", async (req, res) => {
             await conn.beginTransaction();
         }
 
-        console.log("Buffered updates:", tx.buffered);   // for debugging
+        console.log("Buffered updates:", tx.buffered);   // <-- add this
 
         for (const title of Object.keys(tx.buffered)) {
             const rating = tx.buffered[title];

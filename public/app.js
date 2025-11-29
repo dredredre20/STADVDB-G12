@@ -21,7 +21,6 @@ function appendLog(entry) {
 // --- APPLY SETTINGS TO NODE ---
 async function applySettings() {
     console.log("Applying settings...");
-    console.log("Applying settings...");
     const url = getNodeUrl();
     const isolation = document.getElementById("isolationLevel").value;
 
