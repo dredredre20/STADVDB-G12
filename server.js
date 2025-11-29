@@ -299,103 +299,63 @@ app.post("/tx/update", (req, res) => {
 // COMMIT (apply buffered writes)
 app.post("/tx/commit", async (req, res) => {
     const { txId } = req.body;
-    console.log("=== /tx/commit called ===");
-    console.log("Incoming txId:", txId);
-
     const tx = txs[txId];
 
-    if (!tx) {
-        console.log("ERROR: Unknown transaction:", txId);
-        return res.status(400).send({ ok: false, error: "Unknown tx" });
-    }
+    if (!tx) return res.status(400).send({ ok: false, error: "Unknown tx" });
 
-    console.log("Transaction object:", tx);
-
-    if (isNodeFailed) {
-        console.log("ERROR: Node is failed. Rejecting commit.");
+    if (isNodeFailed){
         return res.status(500).send({ ok: false, error: "Node is failed. Cannot commit transaction."});
     }
 
     try {
-        // Use existing connection or get a new one
         const conn = tx.connection || await pool.getConnection();
-        console.log("Using DB connection:", tx.connection ? "existing" : "new");
-
         await conn.beginTransaction();
-        console.log("BEGIN TRANSACTION");
 
         if (!tx.connection) {
-            console.log("No existing tx.connection → calling beginTransaction again");
             await conn.beginTransaction();
         }
 
-        // Debug buffered updates
-        console.log("Buffered updates object:", tx.buffered);
+        console.log("Buffered updates:", tx.buffered);   // for debugging
 
-        if (!tx.buffered || Object.keys(tx.buffered).length === 0) {
-            console.log("WARNING: tx.buffered is EMPTY. No updates to commit.");
-        }
-
-        // Apply each update individually
         for (const title of Object.keys(tx.buffered)) {
             const rating = tx.buffered[title];
 
-            console.log(`→ Updating title_id=${title} to rating=${rating}`);
-
-            const [result] = await conn.query(
+            await conn.query(
                 "UPDATE imdb SET average_rating = ? WHERE title_id = ?",
                 [rating, title]
             );
-
-            console.log(`   Query result for ${title}:`, result);
         }
 
         await conn.commit();
-        console.log("COMMIT SUCCESS");
-
         conn.release();
-        console.log("DB connection released");
 
         // Log commit for recovery
         const commitEntry = {
-            txId,
-            timestamp: Date.now(),
+            txId, 
+            timestamp : Date.now(), 
             updates: tx.buffered,
             sourceNode: getCurrentNodeUrl()
-        };
-
-        console.log("Commit entry to be logged:", commitEntry);
+        }
         commitLog.push(commitEntry);
 
         log(`COMMIT tx=${txId}`);
 
-        console.log("Sending commit entry to replicator...");
-        const replicationResult = await replicateTransaction(commitEntry);
-        console.log("Replication result:", replicationResult);
+        await replicateTransaction(commitEntry); // change this later
 
-        // Cleanup
         delete txs[txId];
-        console.log(`Transaction ${txId} removed from txs[]`);
-
         res.send({ ok: true });
 
     } catch (err) {
-        console.log("ERROR during COMMIT:", err);
-
         if (tx.connection) {
-            console.log("Rolling back existing tx.connection...");
             await tx.connection.rollback();
             tx.connection.release();
-            console.log("Rollback done and connection released.");
         }
 
         delete txs[txId];
-        console.log(`Transaction ${txId} removed due to error.`);
-
         res.status(500).send({ ok: false, error: err.message });
     }
-});
 
+});
 
 // ABORT
 app.post("/tx/abort", async (req, res) => {
