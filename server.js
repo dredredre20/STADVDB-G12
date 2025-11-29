@@ -71,12 +71,80 @@ function getCurrentNodeUrl() {
     return NODE_URLS[parseInt(NODE_ID) - 1];
 }
 
-
 let txs = {}; 
 let config = {
     isolation: "read_committed",
     lockMode: "strict_2pl"
 };
+
+
+// --- Locking Mechanisms ---
+let locks = {
+    shared: {}, 
+    exclusive: {}
+}
+
+// Change time depending on what we need
+async function acquireSharedLock(txId, title_id, timeout = 10000){
+    const lockKey = title_id;
+    const startTime = Date.now();
+
+    while (Date.now() - startTime < timeout){
+        // If no exclusive lock held on the title_id
+        if (!locks.exclusive[lockKey] /*|| locks.exclusive[lockKey] === txId*/){
+
+            if (!locks.shared[lockKey]){
+                locks.shared[lockKey] = new Set(); // set since we can have multiple shared locks
+            }
+            locks.shared[lockKey].add(txId);
+            return true;
+        } 
+
+    }
+
+    throw new Error(`Timeout acquiring shared lock on ${title_id}`);
+
+}
+
+// Change time depending on what we need
+function acquireExclusiveLock(txId, title_id, timeout = 10000){
+    const lockKey = title_id;
+    const startTime = Date.now();
+
+
+    while (Date.now() - startTime < timeout){
+
+        // Check if there are shared locks held by the transactions or other transactions
+        const hasOtherSharedLocks = locks.shared[lockKey] && (locks.shared[lockKey].size > 1 || !locks.shared[lockKey].has(txId));
+
+        // Check if there is an exclusive lock held by another transaction
+        const hasExlusiveLock = locks.exclusive[lockKey] && locks.exclusive[lockKey] !== txId;
+
+        if (!hasOtherSharedLocks && !hasExlusiveLock){
+            locks.exclusive[lockKey] = txId;
+            return true;
+        }
+        
+    }
+
+    throw new Error(`Timeout acquiring shared lock on ${title_id}`);
+}
+
+// Delete all locks in 2PL
+function releaseAllLocks(txId, title_id){
+    const lockKey = title_id;
+    
+    if (locks.shared[lockKey]){
+        locks.shared[lockKey].delete(txId);
+        if (locks.shared[lockKey].size === 0){
+            delete locks.shared[lockKey];
+        }
+    }
+
+    if (locks.exclusive[lockKey] || locks.exclusive[lockKey] === txId){
+        delete locks.exclusive[lockKey]
+    }
+}
 
 // --------------------------------
 // ROUTES
@@ -233,108 +301,6 @@ app.post("/tx/abort", (req, res) => {
 
     res.send({ ok: true });
 });
-
-
-// Sync missed transactions during recovery
-// This endpoint is called during commit to replicate to other nodes
-app.post("/sync", async (req, res) => {
-    const { commits } = req.body;
-    let synced = 0;
-    let failed = 0;
-
-    for (const commit of commits) {
-        try {
-            const conn = await pool.getConnection();
-            await conn.beginTransaction();
-
-            // For every update in the commit, apply it
-            for (const title of Object.keys(commit.updates)) {
-                const rating = commit.updates[title];
-                await conn.query(
-                    "UPDATE imdb SET average_rating = ? WHERE title_id = ?",
-                    [rating, title]
-                );
-            }
-
-            await conn.commit();
-            conn.release();
-
-            commitLog.push(commit);
-            synced++;
-            log(`SYNCED tx=${commit.txId}`);
-        } catch (err) {
-            failed++;
-            log(`SYNC FAILED tx=${commit.txId}: ${err.message}`);
-        }
-    }
-
-    res.send({ ok: true, synced, failed });
-});
-
-// Get commit log for recovery
-// This endpoint is called by recovering nodes to get missed transactions
-app.get("/commit-log", (req, res) => {
-    const { since } = req.query;
-    const timestamp = since ? parseInt(since) : 0;
-    
-    const missedCommits = commitLog.filter(c => c.timestamp > timestamp);
-    res.send({ ok: true, commits: missedCommits });
-});
-
-
-// Recover node
-// This endpoint is called to signal the node to start recovering
-app.post("/recover", async (req, res) => {
-    isNodeFailed = false;
-    log(`NODE RECOVERING...`);
-
-    // Get last commit timestamp
-    const lastCommit = commitLog.length > 0 
-        ? commitLog[commitLog.length - 1].timestamp 
-        : 0;
-
-    // Sync from all other nodes
-    let totalSynced = 0;
-    for (const nodeUrl of NODE_URLS) {
-        if (nodeUrl === getCurrentNodeUrl()) continue;
-
-        try {
-            const res = await fetch(`${nodeUrl}/commit-log?since=${lastCommit}`);
-            const data = await res.json();
-
-            if (data.ok && data.commits.length > 0) {
-                // Apply each commit to the local node/db
-                for (const commit of data.commits) {
-                    try {
-                        const conn = await pool.getConnection();
-                        await conn.beginTransaction();
-
-                        for (const title of Object.keys(commit.updates)) {
-                            await conn.query(
-                                "UPDATE imdb SET average_rating = ? WHERE title_id = ?",
-                                [commit.updates[title], title]
-                            );
-                        }
-
-                        await conn.commit();
-                        conn.release();
-                        commitLog.push(commit);
-                        totalSynced++;
-                        log(`RECOVERED tx=${commit.txId} from ${nodeUrl}`);
-                    } catch (err) {
-                        log(`RECOVERY FAILED tx=${commit.txId}: ${err.message}`);
-                    }
-                }
-            }
-        } catch (err) {
-            log(`Failed to sync from ${nodeUrl}: ${err.message}`);
-        }
-    }
-
-    log(`NODE RECOVERED - Synced ${totalSynced} transactions`);
-    res.send({ ok: true, status: "up", synced: totalSynced });
-});
-
 
 // --------------------------------
 // START SERVER
