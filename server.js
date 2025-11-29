@@ -340,6 +340,24 @@ app.post("/tx/commit", async (req, res) => {
 
         log(`COMMIT tx=${txId}`);
 
+        // Fetch genre information
+        try {
+            const res = await fetch(url + "/tx/read", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ txId, title_id: titleId })
+            });
+
+            const json = await res.json();
+
+            console.log(json)
+
+            appendLog(json);
+
+        } catch (err) {
+            appendLog({ ok: false, error: err.message });
+        }
+
         await replicateTransaction(commitEntry); // change this later
 
         delete txs[txId];
