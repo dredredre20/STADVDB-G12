@@ -23,12 +23,11 @@ async function applySettings() {
     console.log("Applying settings...");
     const url = getNodeUrl();
     const isolation = document.getElementById("isolationLevel").value;
-    const lockMode = document.getElementById("lockMode").value;
 
     const res = await fetch(url + "/config", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ isolation, lockMode })
+        body: JSON.stringify({ isolation})
     });
 
     const data = await res.json();
@@ -132,6 +131,16 @@ async function commitTx() {
 
         const json = await res.json();
         appendLog(json);
+        if (json && json.ok) {
+            // notify user and clear inputs for this transaction
+            alert(`Transaction ${txId} committed`);
+            currentTxId = null;
+            document.getElementById("txId").value = "";
+            document.getElementById("titleId").value = "";
+            document.getElementById("newRating").value = "";
+        } else {
+            appendLog({ ok: false, error: json && json.error ? json.error : 'Commit failed' });
+        }
     } catch (err) {
         appendLog({ ok: false, error: err.message });
     }
@@ -151,6 +160,15 @@ async function abortTx() {
 
         const json = await res.json();
         appendLog(json);
+        if (json && json.ok) {
+            alert(`Transaction ${txId} aborted`);
+            currentTxId = null;
+            document.getElementById("txId").value = "";
+            document.getElementById("titleId").value = "";
+            document.getElementById("newRating").value = "";
+        } else {
+            appendLog({ ok: false, error: json && json.error ? json.error : 'Abort failed' });
+        }
     } catch (err) {
         appendLog({ ok: false, error: err.message });
     }
