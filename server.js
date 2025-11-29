@@ -78,6 +78,87 @@ let config = {
     lockMode: "strict_2pl"
 };
 
+// --- Replication function ---
+async function replicateTransaction(commitEntry) {
+    const isCentral = NODE_ID === "1";
+
+    // Helper to do the POST /sync call
+    async function postSync(url, commitsPayload) {
+        try {
+            const resp = await fetch(url + "/sync", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ commits: commitsPayload })
+            });
+            const json = await resp.json().catch(() => ({ ok: resp.ok }));
+            if (resp.ok) {
+                log(`Replicated tx=${commitEntry.txId} to ${url}`);
+            } else {
+                log(`Replication FAILED tx=${commitEntry.txId} to ${url}: ${JSON.stringify(json)}`);
+            }
+        } catch (err) {
+            log(`Replication FAILED tx=${commitEntry.txId} to ${url}: ${err.message}`);
+        }
+    }
+
+    if (isCentral) {
+        // For central node, determine genre for each title_id then group by target node
+        const titleIds = Object.keys(commitEntry.updates);
+        if (titleIds.length === 0) return;
+
+        try {
+            // Query genres for all title_ids
+            const placeholders = titleIds.map(() => '?').join(',');
+            const [rows] = await pool.query(
+                `SELECT title_id, genre FROM imdb WHERE title_id IN (${placeholders})`,
+                titleIds
+            );
+
+            // Build a map for title_id to genre
+            const genreMap = {};
+            for (const r of rows) {
+                genreMap[r.title_id] = (r.genre || "").toString().toLowerCase();
+            }
+
+            // Group updates by node URL
+            const nodeUpdates = {};
+            for (const title of titleIds) {
+                const rating = commitEntry.updates[title];
+                const genre = genreMap[title] || null;
+
+                if (genre === "comedy") {
+                    const url = NODE_URLS[1]; // Node 2
+                    nodeUpdates[url] = nodeUpdates[url] || {};
+                    nodeUpdates[url][title] = rating;
+                } else  { // assume drama
+                    const url = NODE_URLS[2]; // Node 3
+                    nodeUpdates[url] = nodeUpdates[url] || {};
+                    nodeUpdates[url][title] = rating;
+                } 
+            }
+            for (const [url, updatesObj] of Object.entries(nodeUpdates)) {
+                const groupedCommit = {
+                    txId: commitEntry.txId,
+                    timestamp: commitEntry.timestamp,
+                    updates: updatesObj,
+                    sourceNode: getCurrentNodeUrl()
+                };
+                await postSync(url, [groupedCommit]);
+            }
+        } catch (err) {
+            log(`REPLICATION (central) FAILED tx=${commitEntry.txId}: ${err.message}`);
+        }
+    } else {
+        // For node 2 or 3, replicate full commit entry to central node
+        const centralUrl = NODE_URLS[0];
+        try {
+            await postSync(centralUrl, [commitEntry]);
+        } catch (err) {
+            log(`REPLICATION (fragment->central) FAILED tx=${commitEntry.txId}: ${err.message}`);
+        }
+    }
+}
+
 // --------------------------------
 // ROUTES
 // --------------------------------
