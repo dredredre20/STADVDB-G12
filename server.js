@@ -350,6 +350,12 @@ app.post("/tx/commit", async (req, res) => {
 
             const json = await res.json();
 
+            //if row exists show rating and title info
+            if (json.ok && json.row) {
+                const rating = json.row.average_rating;
+                appendLog(`VALUE tx=${txId} title=${titleId} rating=${rating}`);
+            }
+
             console.log(json)
 
             appendLog(json);
