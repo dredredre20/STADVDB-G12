@@ -4,6 +4,7 @@ const bodyParser = require("body-parser");
 const cors = require("cors");
 const mysql = require("mysql2/promise");
 const path = require("path");
+const e = require("express");
 
 const NODE_ID = process.env.NODE_ID || "1";
 const PORT = process.env.PORT || (3000 + parseInt(NODE_ID));
@@ -70,7 +71,6 @@ const NODE_URLS = [
 function getCurrentNodeUrl() {
     return NODE_URLS[parseInt(NODE_ID) - 1];
 }
-
 
 let txs = {}; 
 let config = {
@@ -196,7 +196,9 @@ app.post("/tx/begin", (req, res) => {
 
     txs[txId] = {
         txId,
+        connection: null,
         isolation: isolation || config.isolation,
+       // lockedTitles: new Set(),
         buffered: {},
         startTime: Date.now(),
         status: "active"
@@ -226,21 +228,58 @@ app.get("/active", (req, res) => {
 // READ
 app.post("/tx/read", async (req, res) => {
     const { txId, title_id } = req.body;
+    const tx = txs[txId];
+
+    if (!tx) return res.status(400).send({ ok: false, error: "Unknown tx" });
+
+    if (tx.buffered[title_id] !== undefined){
+        const rating = tx.buffered[title_id];
+        log(`READ tx=${txId} title=${title_id} rating=${rating} (buffered)`);
+        return res.send({ ok: true, row: { title_id, average_rating: rating } });
+    }
+
+    const isolationLevel = txs[txId].isolation;
+    //const lockingMode = config.lockMode;
 
     try {
-        const [rows] = await pool.query(
+        if (!txs[txId].connection) {
+            const conn = await pool.getConnection();
+            txs[txId].connection = conn;
+
+            const isolationMapping = {
+                "read_uncommitted": "READ UNCOMMITTED",
+                "read_committed": "READ COMMITTED",
+                "repeatable_read": "REPEATABLE READ",
+                "serializable": "SERIALIZABLE"
+            }
+
+            const isoLevel = isolationMapping[isolationLevel];
+            if (!isoLevel) {
+                throw new Error("Unknown isolation level");
+            }
+
+            await conn.query(`SET TRANSACTION ISOLATION LEVEL ${isoLevel}`);
+            await conn.beginTransaction();
+
+        }
+        // Change this to pool.query if it does not work
+        const [rows] = await txs[txId].connection.query(
             "SELECT * FROM imdb WHERE title_id = ? LIMIT 1",
-            [title_id]
-        );
-
+                [title_id]
+            );
         const row = rows[0] || null;
-
+    
         // LOG the rating for schedule viewer
         const rating = row ? row.average_rating : "null";
-        log(`READ tx=${txId} title=${title_id} rating=${rating}`);
-
+        log(`READ tx=${txId} title=${title_id} rating=${rating}`);   
         res.send({ ok: true, row });
+        
     } catch (err) {
+        if (tx.connection){
+            await tx.connection.rollback();
+            tx.connection.release();
+            
+        }
         res.status(500).send({ ok: false, error: err.message });
     }
 });
@@ -269,8 +308,12 @@ app.post("/tx/commit", async (req, res) => {
     }
 
     try {
-        const conn = await pool.getConnection();
+        const conn = tx.connection || await pool.getConnection();
         await conn.beginTransaction();
+
+        if (!tx.connection) {
+            await conn.beginTransaction();
+        }
 
         for (const title of Object.keys(tx.buffered)) {
             const rating = tx.buffered[title];
@@ -301,121 +344,24 @@ app.post("/tx/commit", async (req, res) => {
         res.send({ ok: true });
 
     } catch (err) {
+        if (tx.connection) {
+            await tx.connection.rollback();
+            tx.connection.release();
+        }
+
+        delete txs[txId];
         res.status(500).send({ ok: false, error: err.message });
     }
+
 });
 
 // ABORT
-app.post("/tx/abort", (req, res) => {
+app.post("/tx/abort", async (req, res) => {
     const { txId } = req.body;
     delete txs[txId];
-
     log(`ABORT tx=${txId}`);
-
     res.send({ ok: true });
 });
-
-
-// Sync missed transactions during recovery
-// This endpoint is called during commit to replicate to other nodes
-app.post("/sync", async (req, res) => {
-    const { commits } = req.body;
-    let synced = 0;
-    let failed = 0;
-
-    for (const commit of commits) {
-        try {
-            const conn = await pool.getConnection();
-            await conn.beginTransaction();
-
-            // For every update in the commit, apply it
-            for (const title of Object.keys(commit.updates)) {
-                const rating = commit.updates[title];
-                await conn.query(
-                    "UPDATE imdb SET average_rating = ? WHERE title_id = ?",
-                    [rating, title]
-                );
-            }
-
-            await conn.commit();
-            conn.release();
-
-            commitLog.push(commit);
-            synced++;
-            log(`SYNCED tx=${commit.txId}`);
-        } catch (err) {
-            failed++;
-            log(`SYNC FAILED tx=${commit.txId}: ${err.message}`);
-        }
-    }
-
-    res.send({ ok: true, synced, failed });
-});
-
-// Get commit log for recovery
-// This endpoint is called by recovering nodes to get missed transactions
-app.get("/commit-log", (req, res) => {
-    const { since } = req.query;
-    const timestamp = since ? parseInt(since) : 0;
-    
-    const missedCommits = commitLog.filter(c => c.timestamp > timestamp);
-    res.send({ ok: true, commits: missedCommits });
-});
-
-
-// Recover node
-// This endpoint is called to signal the node to start recovering
-app.post("/recover", async (req, res) => {
-    isNodeFailed = false;
-    log(`NODE RECOVERING...`);
-
-    // Get last commit timestamp
-    const lastCommit = commitLog.length > 0 
-        ? commitLog[commitLog.length - 1].timestamp 
-        : 0;
-
-    // Sync from all other nodes
-    let totalSynced = 0;
-    for (const nodeUrl of NODE_URLS) {
-        if (nodeUrl === getCurrentNodeUrl()) continue;
-
-        try {
-            const res = await fetch(`${nodeUrl}/commit-log?since=${lastCommit}`);
-            const data = await res.json();
-
-            if (data.ok && data.commits.length > 0) {
-                // Apply each commit to the local node/db
-                for (const commit of data.commits) {
-                    try {
-                        const conn = await pool.getConnection();
-                        await conn.beginTransaction();
-
-                        for (const title of Object.keys(commit.updates)) {
-                            await conn.query(
-                                "UPDATE imdb SET average_rating = ? WHERE title_id = ?",
-                                [commit.updates[title], title]
-                            );
-                        }
-
-                        await conn.commit();
-                        conn.release();
-                        commitLog.push(commit);
-                        totalSynced++;
-                        log(`RECOVERED tx=${commit.txId} from ${nodeUrl}`);
-                    } catch (err) {
-                        log(`RECOVERY FAILED tx=${commit.txId}: ${err.message}`);
-                    }
-                }
-            }
-        } catch (err) {
-            log(`Failed to sync from ${nodeUrl}: ${err.message}`);
-        }
-    }
-
-    log(`NODE RECOVERED - Synced ${totalSynced} transactions`);
-    res.send({ ok: true, status: "up", synced: totalSynced });
-});
-
 
 // --------------------------------
 // START SERVER
