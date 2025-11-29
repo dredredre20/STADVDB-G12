@@ -4,6 +4,7 @@ const bodyParser = require("body-parser");
 const cors = require("cors");
 const mysql = require("mysql2/promise");
 const path = require("path");
+const e = require("express");
 
 const NODE_ID = process.env.NODE_ID || "1";
 const PORT = process.env.PORT || (3000 + parseInt(NODE_ID));
@@ -78,74 +79,6 @@ let config = {
 };
 
 
-// --- Locking Mechanisms ---
-let locks = {
-    shared: {}, 
-    exclusive: {}
-}
-
-// Change time depending on what we need
-async function acquireSharedLock(txId, title_id, timeout = 10000){
-    const lockKey = title_id;
-    const startTime = Date.now();
-
-    while (Date.now() - startTime < timeout){
-        // If no exclusive lock held on the title_id
-        if (!locks.exclusive[lockKey] /*|| locks.exclusive[lockKey] === txId*/){
-
-            if (!locks.shared[lockKey]){
-                locks.shared[lockKey] = new Set(); // set since we can have multiple shared locks
-            }
-            locks.shared[lockKey].add(txId);
-            return true;
-        } 
-
-    }
-
-    throw new Error(`Timeout acquiring shared lock on ${title_id}`);
-
-}
-
-// Change time depending on what we need
-function acquireExclusiveLock(txId, title_id, timeout = 10000){
-    const lockKey = title_id;
-    const startTime = Date.now();
-
-
-    while (Date.now() - startTime < timeout){
-
-        // Check if there are shared locks held by the transactions or other transactions
-        const hasOtherSharedLocks = locks.shared[lockKey] && (locks.shared[lockKey].size > 1 || !locks.shared[lockKey].has(txId));
-
-        // Check if there is an exclusive lock held by another transaction
-        const hasExlusiveLock = locks.exclusive[lockKey] && locks.exclusive[lockKey] !== txId;
-
-        if (!hasOtherSharedLocks && !hasExlusiveLock){
-            locks.exclusive[lockKey] = txId;
-            return true;
-        }
-        
-    }
-
-    throw new Error(`Timeout acquiring shared lock on ${title_id}`);
-}
-
-// Delete all locks in 2PL
-function releaseAllLocks(txId, title_id){
-    const lockKey = title_id;
-    
-    if (locks.shared[lockKey]){
-        locks.shared[lockKey].delete(txId);
-        if (locks.shared[lockKey].size === 0){
-            delete locks.shared[lockKey];
-        }
-    }
-
-    if (locks.exclusive[lockKey] || locks.exclusive[lockKey] === txId){
-        delete locks.exclusive[lockKey]
-    }
-}
-
 // --------------------------------
 // ROUTES
 // --------------------------------
@@ -183,7 +116,9 @@ app.post("/tx/begin", (req, res) => {
 
     txs[txId] = {
         txId,
+        connection: null,
         isolation: isolation || config.isolation,
+       // lockedTitles: new Set(),
         buffered: {},
         startTime: Date.now(),
         status: "active"
@@ -213,21 +148,58 @@ app.get("/active", (req, res) => {
 // READ
 app.post("/tx/read", async (req, res) => {
     const { txId, title_id } = req.body;
+    const tx = txs[txId];
+
+    if (!tx) return res.status(400).send({ ok: false, error: "Unknown tx" });
+
+    if (tx.buffered[title_id] !== undefined){
+        const rating = tx.buffered[title_id];
+        log(`READ tx=${txId} title=${title_id} rating=${rating} (buffered)`);
+        return res.send({ ok: true, row: { title_id, average_rating: rating } });
+    }
+
+    const isolationLevel = txs[txId].isolation;
+    //const lockingMode = config.lockMode;
 
     try {
-        const [rows] = await pool.query(
+        if (!txs[txId].connection) {
+            const conn = await pool.getConnection();
+            txs[txId].connection = conn;
+
+            const isolationMapping = {
+                "read_uncommitted": "READ UNCOMMITTED",
+                "read_committed": "READ COMMITTED",
+                "repeatable_read": "REPEATABLE READ",
+                "serializable": "SERIALIZABLE"
+            }
+
+            const isoLevel = isolationMapping[isolationLevel];
+            if (!isoLevel) {
+                throw new Error("Unknown isolation level");
+            }
+
+            await conn.query(`SET TRANSACTION ISOLATION LEVEL ${isoLevel}`);
+            await conn.beginTransaction();
+
+        }
+        // Change this to pool.query if it does not work
+        const [rows] = await txs[txId].connection.query(
             "SELECT * FROM imdb WHERE title_id = ? LIMIT 1",
-            [title_id]
-        );
-
+                [title_id]
+            );
         const row = rows[0] || null;
-
+    
         // LOG the rating for schedule viewer
         const rating = row ? row.average_rating : "null";
-        log(`READ tx=${txId} title=${title_id} rating=${rating}`);
-
+        log(`READ tx=${txId} title=${title_id} rating=${rating}`);   
         res.send({ ok: true, row });
+        
     } catch (err) {
+        if (tx.connection){
+            await tx.connection.rollback();
+            tx.connection.release();
+            
+        }
         res.status(500).send({ ok: false, error: err.message });
     }
 });
@@ -256,8 +228,12 @@ app.post("/tx/commit", async (req, res) => {
     }
 
     try {
-        const conn = await pool.getConnection();
+        const conn = tx.connection || await pool.getConnection();
         await conn.beginTransaction();
+
+        if (!tx.connection) {
+            await conn.beginTransaction();
+        }
 
         for (const title of Object.keys(tx.buffered)) {
             const rating = tx.buffered[title];
@@ -288,17 +264,22 @@ app.post("/tx/commit", async (req, res) => {
         res.send({ ok: true });
 
     } catch (err) {
+        if (tx.connection) {
+            await tx.connection.rollback();
+            tx.connection.release();
+        }
+
+        delete txs[txId];
         res.status(500).send({ ok: false, error: err.message });
     }
+
 });
 
 // ABORT
-app.post("/tx/abort", (req, res) => {
+app.post("/tx/abort", async (req, res) => {
     const { txId } = req.body;
     delete txs[txId];
-
     log(`ABORT tx=${txId}`);
-
     res.send({ ok: true });
 });
 
