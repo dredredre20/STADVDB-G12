@@ -55,12 +55,34 @@ let pool;
     }
 })();
 
-// --- Transaction state ---
-// --- Recovery & Replication State ---
-// let replicationQueue = [];
-
-let commitLog = []; // for saving trasanctions that are already done
+// --- Saving Committed Logs ---
+const file = require("fs");
+const COMMIT_LOG_FILE = `commit-log-node-${NODE_ID}.json`;
+// let commitLog = []; // for saving trasanctions that are already done
 let isNodeFailed = false;
+
+function loadingCommittedLog(){
+    try {
+        if (file.existsSync(COMMIT_LOG_FILE)){
+            const curr_data = file.readFileSync(COMMIT_LOG_FILE, 'utf8');
+            commitLog = JSON.parse(curr_data);
+            console.log(`Loaded commits from ${COMMIT_LOG_FILE}`);
+        }
+    } catch (err){
+        commitLog = [] // new array for saving if there is no file saved yet
+    }
+}
+
+function saveCommitLog(){
+    try {
+        file.writeFileSync(COMMIT_LOG_FILE, JSON.stringify(commitLog, null, 2));
+    } catch(err){
+        console.error('Failed to save commit log:', err);
+
+    }
+}
+
+loadingCommittedLog() // let this run as long as the server functions
 
 const NODE_URLS = [
     "http://ccscloud.dlsu.edu.ph:60148",
@@ -203,9 +225,11 @@ app.post("/sync", async (req, res) => {
             await conn.commit();
             conn.release();
 
+            commitLog.push(entry);
             log(`REPLICATED tx=${entry.txId} from ${entry.sourceNode}`);
         }
 
+        saveCommitLog();
         res.send({ ok: true });
     } catch (err) {
         res.status(500).send({ ok: false, error: err.message });
@@ -390,6 +414,7 @@ app.post("/tx/commit", async (req, res) => {
         };
 
         commitLog.push(commitEntry);
+        saveCommitLog();
         log(`COMMIT tx=${txId}`);
 
         await replicateTransaction(commitEntry);
@@ -405,6 +430,69 @@ app.post("/tx/commit", async (req, res) => {
     }
 });
 
+// Get commit log for recovery
+// This endpoint is called by recovering nodes to get missed transactions
+app.get("/commit-log", (req, res) => {
+    const { since } = req.query;
+    const timestamp = since ? parseInt(since) : 0;
+    
+    const missedCommits = commitLog.filter(c => c.timestamp > timestamp);
+    res.send({ ok: true, commits: missedCommits });
+});
+
+
+// Recover node
+// This endpoint is called to signal the node to start recovering
+app.post("/recover", async (req, res) => {
+    isNodeFailed = false;
+    log(`NODE RECOVERING...`);
+
+    // Get last commit timestamp
+    const lastCommit = commitLog.length > 0 
+        ? commitLog[commitLog.length - 1].timestamp 
+        : 0;
+
+    // Sync from all other nodes
+    let totalSynced = 0;
+    for (const nodeUrl of NODE_URLS) {
+        if (nodeUrl === getCurrentNodeUrl()) continue;
+
+        try {
+            const res = await fetch(`${nodeUrl}/commit-log?since=${lastCommit}`);
+            const data = await res.json();
+
+            if (data.ok && data.commits.length > 0) {
+                // Apply each commit to the local node/db
+                for (const commit of data.commits) {
+                    try {
+                        const conn = await pool.getConnection();
+                        await conn.beginTransaction();
+
+                        for (const title of Object.keys(commit.updates)) {
+                            await conn.query(
+                                "UPDATE imdb SET average_rating = ? WHERE title_id = ?",
+                                [commit.updates[title], title]
+                            );
+                        }
+
+                        await conn.commit();
+                        conn.release();
+                        commitLog.push(commit);
+                        totalSynced++;
+                        log(`RECOVERED tx=${commit.txId} from ${nodeUrl}`);
+                    } catch (err) {
+                        log(`RECOVERY FAILED tx=${commit.txId}: ${err.message}`);
+                    }
+                }
+            }
+        } catch (err) {
+            log(`Failed to sync from ${nodeUrl}: ${err.message}`);
+        }
+    }
+
+    log(`NODE RECOVERED - Synced ${totalSynced} transactions`);
+    res.send({ ok: true, status: "up", synced: totalSynced });
+});
 
 // ABORT
 app.post("/tx/abort", async (req, res) => {
