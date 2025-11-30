@@ -63,9 +63,9 @@ let commitLog = []; // for saving trasanctions that are already done
 let isNodeFailed = false;
 
 const NODE_URLS = [
-    "http://ccscloud.dlsu.edu.ph:60148",
-    "http://ccscloud.dlsu.edu.ph:60149",
-    "http://ccscloud.dlsu.edu.ph:60150"
+    "http://localhost:60148",
+    "http://localhost:60149",
+    "http://localhost:60150"
 ];
 
 // Change index if incorrect accessing 
