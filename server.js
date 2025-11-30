@@ -117,15 +117,10 @@ async function postSync(url, commits) {
 async function replicateTransaction(commitEntry) {
     const isCentral = NODE_ID === "1";
 
-    console.log(isCentral)
-
     if (isCentral) {
         // For central node, determine genre for each title_id then group by target node
         const titleIds = Object.keys(commitEntry.updates);
         if (titleIds.length === 0) return;
-
-        console.log(titleIds)
-
 
         try {
             // Query genres for all title_ids
@@ -423,6 +418,6 @@ app.post("/tx/abort", async (req, res) => {
 // START SERVER
 // --------------------------------
 
-app.listen(PORT, () => {
-    console.log(`Node ${NODE_ID} running at http://localhost:${PORT}`);
+app.listen(PORT, "0.0.0.0", () => {
+    console.log(`Node ${NODE_ID} running at ${process.env.EXTERNAL_URL}`);
 });
