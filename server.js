@@ -235,139 +235,138 @@ app.post("/config", (req, res) => {
 });
 
 // --------------------------------
-// TRANSACTION API
+// TRANSACTION API (REAL MYSQL TX)
 // --------------------------------
 
-// BEGIN
-app.post("/tx/begin", (req, res) => {
+// BEGIN TRANSACTION (allocate connection, set isolation, start TX)
+app.post("/tx/begin", async (req, res) => {
     const { txId, isolation } = req.body;
 
-    txs[txId] = {
-        txId,
-        connection: null,
-        isolation: isolation || config.isolation,
-       // lockedTitles: new Set(),
-        buffered: {},
-        startTime: Date.now(),
-        status: "active"
-    };
+    if (!txId) return res.status(400).send({ ok: false, error: "txId required" });
+    if (txs[txId]) return res.status(400).send({ ok: false, error: "Transaction already exists" });
 
-    log(`BEGIN tx=${txId} iso=${txs[txId].isolation}`);
-
-    res.send({ ok: true });
-});
-
-// Active transactions for monitor/timeline
-app.get("/active", (req, res) => {
     try {
-        const active = Object.values(txs).filter(t => t.status === "active").map(t => ({
-            txId: t.txId,
-            node: NODE_ID,
-            startTime: t.startTime,
-            isolation: t.isolation
-        }));
+        const conn = await pool.getConnection();
 
-        res.send({ ok: true, active });
+        const isoLevel = {
+            read_uncommitted: "READ UNCOMMITTED",
+            read_committed: "READ COMMITTED",
+            repeatable_read: "REPEATABLE READ",
+            serializable: "SERIALIZABLE"
+        }[isolation || config.isolation];
+
+        await conn.query(`SET SESSION TRANSACTION ISOLATION LEVEL ${isoLevel}`);
+        await conn.beginTransaction();
+
+        txs[txId] = {
+            txId,
+            conn,
+            isolation: isolation || config.isolation,
+            buffered: {},
+            startTime: Date.now(),
+            status: "active"
+        };
+
+        log(`BEGIN tx=${txId} iso=${isolation || config.isolation}`);
+        res.send({ ok: true });
+
     } catch (err) {
+        log(`BEGIN_FAIL tx=${txId} err=${err.message}`);
         res.status(500).send({ ok: false, error: err.message });
     }
 });
 
-// READ
+
+// READ (dirty-read if RU, snapshot read otherwise)
 app.post("/tx/read", async (req, res) => {
     const { txId, title_id } = req.body;
     const tx = txs[txId];
 
-    if (!tx) return res.status(400).send({ ok: false, error: "Unknown tx" });
-
-    if (tx.buffered[title_id] !== undefined){
-        const rating = tx.buffered[title_id];
-        log(`READ tx=${txId} title=${title_id} rating=${rating} (buffered)`);
-        return res.send({ ok: true, row: { title_id, average_rating: rating } });
-    }
-
-    const isolationLevel = txs[txId].isolation;
-    //const lockingMode = config.lockMode;
+    if (!tx) return res.status(400).send({ ok: false, error: "Unknown transaction" });
 
     try {
-        if (!txs[txId].connection) {
-            const conn = await pool.getConnection();
-            txs[txId].connection = conn;
+        let row = null;
+        const conn = tx.conn;
 
-            const isolationMapping = {
-                "read_uncommitted": "READ UNCOMMITTED",
-                "read_committed": "READ COMMITTED",
-                "repeatable_read": "REPEATABLE READ",
-                "serializable": "SERIALIZABLE"
-            }
+        // Dirty Read Mode
+        if (tx.isolation === "read_uncommitted") {
+            await conn.query("SET SESSION TRANSACTION ISOLATION LEVEL READ UNCOMMITTED");
 
-            const isoLevel = isolationMapping[isolationLevel];
-            if (!isoLevel) {
-                throw new Error("Unknown isolation level");
-            }
-
-            await conn.query(`SET TRANSACTION ISOLATION LEVEL ${isoLevel}`);
-            await conn.beginTransaction();
-
-        }
-        // Change this to pool.query if it does not work
-        const [rows] = await txs[txId].connection.query(
-            "SELECT * FROM imdb WHERE title_id = ? LIMIT 1",
+            const [rows] = await conn.query(
+                "SELECT * FROM imdb WHERE title_id = ? LIMIT 1",
                 [title_id]
             );
-        const row = rows[0] || null;
-    
-        // LOG the rating for schedule viewer
-        const rating = row ? row.average_rating : "null";
-        log(`READ tx=${txId} title=${title_id} rating=${rating}`);   
-        res.send({ ok: true, row });
-        
-    } catch (err) {
-        if (tx.connection){
-            await tx.connection.rollback();
-            tx.connection.release();
-            
+            row = rows[0] || null;
+
+        } else {
+            // Normal MVCC consistent read
+            const [rows] = await conn.query(
+                "SELECT * FROM imdb WHERE title_id = ? LIMIT 1",
+                [title_id]
+            );
+            row = rows[0] || null;
         }
+
+        const rating = row ? row.average_rating : "null";
+        log(`READ tx=${txId} title=${title_id} rating=${rating}`);
+
+        res.send({ ok: true, row });
+
+    } catch (err) {
+        log(`READ_FAIL tx=${txId} title=${title_id} err=${err.message}`);
+        try { await tx.conn.rollback(); tx.conn.release(); } catch {}
+        delete txs[txId];
         res.status(500).send({ ok: false, error: err.message });
     }
 });
 
-// UPDATE (buffer only)
-app.post("/tx/update", (req, res) => {
+
+// UPDATE (strict 2PL: SELECT ... FOR UPDATE)
+app.post("/tx/update", async (req, res) => {
     const { txId, title_id, new_rating } = req.body;
-    if (!txs[txId]) return res.status(400).send({ ok: false, error: "Unknown tx" });
+    const tx = txs[txId];
 
-    txs[txId].buffered[title_id] = Number(new_rating);
+    if (!tx) return res.status(400).send({ ok: false, error: "Unknown tx" });
 
-    log(`BUFFER tx=${txId} title=${title_id} rating=${new_rating}`);
+    const conn = tx.conn;
 
-    res.send({ ok: true });
+    try {
+        // Lock row with X-lock
+        const [rows] = await conn.query(
+            "SELECT average_rating FROM imdb WHERE title_id = ? LIMIT 1 FOR UPDATE",
+            [title_id]
+        );
+        const oldRating = rows[0] ? rows[0].average_rating : null;
+
+        // Buffer write (for replication grouping)
+        tx.buffered[title_id] = Number(new_rating);
+
+        log(`WRITE-BUFFERED tx=${txId} title=${title_id} old=${oldRating} new=${new_rating}`);
+
+        res.send({ ok: true });
+
+    } catch (err) {
+        log(`UPDATE_FAIL tx=${txId} err=${err.message}`);
+        try { await conn.rollback(); conn.release(); } catch {}
+        delete txs[txId];
+        res.status(500).send({ ok: false, error: err.message });
+    }
 });
 
-// COMMIT (apply buffered writes)
+
+// COMMIT
 app.post("/tx/commit", async (req, res) => {
     const { txId } = req.body;
     const tx = txs[txId];
 
     if (!tx) return res.status(400).send({ ok: false, error: "Unknown tx" });
+    if (isNodeFailed)
+        return res.status(500).send({ ok: false, error: "Node is failed." });
 
-    if (isNodeFailed){
-        return res.status(500).send({ ok: false, error: "Node is failed. Cannot commit transaction."});
-    }
+    const conn = tx.conn;
 
     try {
-        const conn = tx.connection || await pool.getConnection();
-        await conn.beginTransaction();
-
-        if (!tx.connection) {
-            await conn.beginTransaction();
-        }
-
-        console.log("Buffered updates:", tx.buffered);   // for debugging
-
-        for (const title of Object.keys(tx.buffered)) {
-            const rating = tx.buffered[title];
-
+        for (const [title, rating] of Object.entries(tx.buffered)) {
             await conn.query(
                 "UPDATE imdb SET average_rating = ? WHERE title_id = ?",
                 [rating, title]
@@ -377,42 +376,47 @@ app.post("/tx/commit", async (req, res) => {
         await conn.commit();
         conn.release();
 
-        // Log commit for recovery
         const commitEntry = {
-            txId, 
-            timestamp : Date.now(), 
+            txId,
+            timestamp: Date.now(),
             updates: tx.buffered,
             sourceNode: getCurrentNodeUrl()
-        }
-        commitLog.push(commitEntry);
+        };
 
+        commitLog.push(commitEntry);
         log(`COMMIT tx=${txId}`);
 
-        await replicateTransaction(commitEntry); // change this later
+        await replicateTransaction(commitEntry);
 
         delete txs[txId];
         res.send({ ok: true });
 
     } catch (err) {
-        if (tx.connection) {
-            await tx.connection.rollback();
-            tx.connection.release();
-        }
-
+        log(`COMMIT_FAIL tx=${txId} err=${err.message}`);
+        try { await conn.rollback(); conn.release(); } catch {}
         delete txs[txId];
         res.status(500).send({ ok: false, error: err.message });
     }
-
 });
 
 
 // ABORT
 app.post("/tx/abort", async (req, res) => {
     const { txId } = req.body;
-    delete txs[txId];
+    const tx = txs[txId];
+
+    if (tx && tx.conn) {
+        try {
+            await tx.conn.rollback();
+            tx.conn.release();
+        } catch {}
+    }
+
     log(`ABORT tx=${txId}`);
+    delete txs[txId];
     res.send({ ok: true });
 });
+
 
 // --------------------------------
 // START SERVER
