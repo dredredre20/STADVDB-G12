@@ -454,9 +454,12 @@ app.post("/recover", async (req, res) => {
 
     // Sync from all other nodes
     let totalSynced = 0;
-    for (const nodeUrl of NODE_URLS) {
-        if (nodeUrl === getCurrentNodeUrl()) continue;
+    const currentNodeIndex = parseInt(NODE_ID) - 1;
 
+    for (let i = 0; i < NODE_URLS.length; i++) {
+        if (i === currentNodeIndex) continue;
+
+        const nodeUrl = NODE_URLS[i];
         try {
             const res = await fetch(`${nodeUrl}/commit-log?since=${lastCommit}`);
             const data = await res.json();
@@ -493,6 +496,9 @@ app.post("/recover", async (req, res) => {
     log(`NODE RECOVERED - Synced ${totalSynced} transactions`);
     res.send({ ok: true, status: "up", synced: totalSynced });
 });
+
+
+
 
 // ABORT
 app.post("/tx/abort", async (req, res) => {
