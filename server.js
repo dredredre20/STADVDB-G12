@@ -68,6 +68,12 @@ const NODE_URLS = [
     "http://ccscloud.dlsu.edu.ph:60150"
 ];
 
+const INTERNAL_URLS = [
+    "http://10.2.14.48:80",
+    "http://10.2.14.49:80",
+    "http://10.2.14.50:80"
+];
+
 // Change index if incorrect accessing 
 function getCurrentNodeUrl() {
     return NODE_URLS[parseInt(NODE_ID) - 1];
@@ -143,11 +149,11 @@ async function replicateTransaction(commitEntry) {
                 const genre = genreMap[title] || null;
 
                 if (genre === "comedy") {
-                    const url = NODE_URLS[1]; // Node 2
+                    const url = INTERNAL_URLS[1]; // Node 2
                     nodeUpdates[url] = nodeUpdates[url] || {};
                     nodeUpdates[url][title] = rating;
                 } else  { // assume drama
-                    const url = NODE_URLS[2]; // Node 3
+                    const url = INTERNAL_URLS[2]; // Node 3
                     nodeUpdates[url] = nodeUpdates[url] || {};
                     nodeUpdates[url][title] = rating;
                 } 
@@ -169,7 +175,7 @@ async function replicateTransaction(commitEntry) {
         }
     } else {
         // For node 2 or 3, replicate full commit entry to central node
-        const centralUrl = NODE_URLS[0];
+        const centralUrl = INTERNAL_URLS[0];
         try {
             await postSync(centralUrl, [commitEntry]);
         } catch (err) {
