@@ -456,10 +456,10 @@ app.post("/recover", async (req, res) => {
     let totalSynced = 0;
     const currentNodeIndex = parseInt(NODE_ID) - 1;
 
-    for (let i = 0; i < NODE_URLS.length; i++) {
+    for (let i = 0; i < INTERNAL_URLS.length; i++) {
         if (i === currentNodeIndex) continue;
 
-        const nodeUrl = NODE_URLS[i];
+        const nodeUrl = INTERNAL_URLS[i];
         try {
             const res = await fetch(`${nodeUrl}/commit-log?since=${lastCommit}`);
             const data = await res.json();
