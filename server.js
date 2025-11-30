@@ -58,7 +58,7 @@ let pool;
 // --- Saving Committed Logs ---
 const file = require("fs");
 const COMMIT_LOG_FILE = `commit-log-node-${NODE_ID}.json`;
-// let commitLog = []; // for saving trasanctions that are already done
+let commitLog = []; // for saving trasanctions that are already done
 let isNodeFailed = false;
 
 function loadingCommittedLog(){
