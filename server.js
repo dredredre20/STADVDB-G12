@@ -7,7 +7,8 @@ const path = require("path");
 const e = require("express");
 
 const NODE_ID = process.env.NODE_ID || "1";
-const PORT = process.env.PORT || (3000 + parseInt(NODE_ID));
+// Fix: Align default PORT with the hardcoded NODE_URLS (60148 + index)
+const PORT = process.env.PORT || (60148 + parseInt(NODE_ID) - 1);
 
 const app = express();
 app.use(cors());
@@ -78,49 +79,46 @@ let config = {
     lockMode: "strict_2pl"
 };
 
-// Replace your postSync and replicateTransaction functions with these:
-
 async function postSync(url, commits) {
     try {
         console.log(`[POSTSYNC] Sending ${commits.length} commit(s) to: ${url}/sync`);
         
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 30000); // 30s timeout
-        
         const res = await fetch(url + "/sync", {
             method: "POST",
-            headers: { 
-                "Content-Type": "application/json",
-                "Accept": "application/json"
-            },
-            body: JSON.stringify({ commits }),
-            signal: controller.signal
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ commits })
         });
 
-        clearTimeout(timeoutId);
+        console.log(`[POSTSYNC] Received response: ${res.status} ${res.statusText}`);
 
-        console.log(`[POSTSYNC] Response status: ${res.status}`);
-
-        if (!res.ok) {
-            const text = await res.text();
-            throw new Error(`HTTP ${res.status}: ${text}`);
+        // Try to read response body
+        let data;
+        try {
+            data = await res.json();
+            console.log(`[POSTSYNC] Response JSON:`, data);
+        } catch (jsonErr) {
+            console.warn(`[POSTSYNC] Failed to parse JSON response: ${jsonErr.message}`);
+            data = await res.text();
+            console.log(`[POSTSYNC] Response text:`, data);
         }
 
-        const data = await res.json();
-        console.log(`[POSTSYNC] Success:`, data);
+        if (!res.ok) {
+            throw new Error(`HTTP ${res.status} - ${res.statusText}`);
+        }
+
         return data;
     } catch (err) {
-        console.error(`[POSTSYNC] SYNC FAILED to ${url}:`, err.message);
-        log(`SYNC FAILED to ${url}: ${err.message}`);
-        // Don't throw - allow transaction to complete even if replication fails
-        return { ok: false, error: err.message };
+        console.error(`[POSTSYNC] SYNC FAILED to ${url}:`, err);
+        throw err;
     }
 }
 
+// --- Replication function ---
 async function replicateTransaction(commitEntry) {
     const isCentral = NODE_ID === "1";
 
     if (isCentral) {
+        // For central node, determine genre for each title_id then group by target node
         const titleIds = Object.keys(commitEntry.updates);
         if (titleIds.length === 0) return;
 
@@ -132,30 +130,31 @@ async function replicateTransaction(commitEntry) {
                 titleIds
             );
 
-            // Build genre map
+            // Build a map for title_id to genre
             const genreMap = {};
             for (const r of rows) {
                 genreMap[r.title_id] = (r.genre || "").toString().toLowerCase();
             }
 
-            // Group updates by node
+            // Group updates by node URL
             const nodeUpdates = {}; 
             for (const title of titleIds) {
                 const rating = commitEntry.updates[title];
-                const genre = genreMap[title] || "drama"; // default to drama
+                const genre = genreMap[title] || null;
 
-                const targetNode = genre === "comedy" ? NODE_URLS[1] : NODE_URLS[2];
-                
-                if (!nodeUpdates[targetNode]) {
-                    nodeUpdates[targetNode] = {};
-                }
-                nodeUpdates[targetNode][title] = rating;
+                if (genre === "comedy") {
+                    const url = NODE_URLS[1]; // Node 2
+                    nodeUpdates[url] = nodeUpdates[url] || {};
+                    nodeUpdates[url][title] = rating;
+                } else  { // assume drama
+                    const url = NODE_URLS[2]; // Node 3
+                    nodeUpdates[url] = nodeUpdates[url] || {};
+                    nodeUpdates[url][title] = rating;
+                } 
             }
 
-            console.log("Replicating to nodes:", nodeUpdates);
+            console.log(nodeUpdates) // contains info about the url of the node and the value to be updated
 
-            // Send to each target node
-            const promises = [];
             for (const [url, updatesObj] of Object.entries(nodeUpdates)) {
                 const groupedCommit = {
                     txId: commitEntry.txId,
@@ -163,17 +162,13 @@ async function replicateTransaction(commitEntry) {
                     updates: updatesObj,
                     sourceNode: getCurrentNodeUrl()
                 };
-                promises.push(postSync(url, [groupedCommit]));
+                await postSync(url, [groupedCommit]);
             }
-
-            // Wait for all replications (but don't fail transaction if they fail)
-            await Promise.allSettled(promises);
-            
         } catch (err) {
             log(`REPLICATION (central) FAILED tx=${commitEntry.txId}: ${err.message}`);
         }
     } else {
-        // Fragment node -> replicate to central
+        // For node 2 or 3, replicate full commit entry to central node
         const centralUrl = NODE_URLS[0];
         try {
             await postSync(centralUrl, [commitEntry]);
@@ -183,27 +178,16 @@ async function replicateTransaction(commitEntry) {
     }
 }
 
-// Update your /sync endpoint to add better logging:
 app.post("/sync", async (req, res) => {
-    console.log(`[SYNC] Received request from ${req.ip}`);
-    console.log(`[SYNC] Body:`, req.body);
-
     const { commits } = req.body;
-    
-    if (!Array.isArray(commits)) {
-        console.error("[SYNC] Invalid commits - not an array");
-        return res.status(400).send({ ok: false, error: "Invalid commits" });
-    }
+    if (!Array.isArray(commits)) return res.status(400).send({ ok: false, error: "Invalid commits" });
 
     try {
         for (const entry of commits) {
-            console.log(`[SYNC] Processing tx=${entry.txId} with ${Object.keys(entry.updates).length} updates`);
-            
             const conn = await pool.getConnection();
             await conn.beginTransaction();
 
             for (const [title, rating] of Object.entries(entry.updates)) {
-                console.log(`[SYNC] Updating ${title} to ${rating}`);
                 await conn.query(
                     "UPDATE imdb SET average_rating = ? WHERE title_id = ?",
                     [rating, title]
@@ -218,7 +202,6 @@ app.post("/sync", async (req, res) => {
 
         res.send({ ok: true });
     } catch (err) {
-        console.error("[SYNC] Error:", err);
         res.status(500).send({ ok: false, error: err.message });
     }
 });
