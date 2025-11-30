@@ -63,9 +63,9 @@ let commitLog = []; // for saving trasanctions that are already done
 let isNodeFailed = false;
 
 const NODE_URLS = [
-    "http://localhost:60148",
-    "http://localhost:60149",
-    "http://localhost:60150"
+    "http://ccscloud.dlsu.edu.ph:60148",
+    "http://ccscloud.dlsu.edu.ph:60149",
+    "http://ccscloud.dlsu.edu.ph:60150"
 ];
 
 // Change index if incorrect accessing 
@@ -86,8 +86,7 @@ async function postSync(url, commits) {
         const res = await fetch(url + "/sync", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ commits }),
-            timeout: 300000
+            body: JSON.stringify({ commits })
         });
 
         console.log(`[POSTSYNC] Received response: ${res.status} ${res.statusText}`);
