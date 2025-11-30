@@ -145,15 +145,29 @@ app.post("/tx/read", async (req, res) => {
 
     try {
         let row = null;
+        let tx = txs[txId];
 
-        if (txId && txs[txId] && txs[txId].conn) {
-            const conn = txs[txId].conn;
-            const [rows] = await conn.query(
-                "SELECT * FROM imdb WHERE title_id = ? LIMIT 1",
-                [title_id]
-            );
-            row = rows[0] || null;
-        } else {
+        // If inside transaction
+        if (tx && tx.conn) {
+            const conn = tx.conn;
+
+            if (tx.isolation === "read_uncommitted") {
+                // This forces InnoDB to read current uncommitted version
+                const [rows] = await conn.query(
+                    "SELECT * FROM imdb WHERE title_id = ? LIMIT 1 LOCK IN SHARE MODE",
+                    [title_id]
+                );
+                row = rows[0] || null;
+            } else {
+                const [rows] = await conn.query(
+                    "SELECT * FROM imdb WHERE title_id = ? LIMIT 1",
+                    [title_id]
+                );
+                row = rows[0] || null;
+            }
+        } 
+        else {
+            // Autocommit read outside transaction
             const [rows] = await pool.query(
                 "SELECT * FROM imdb WHERE title_id = ? LIMIT 1",
                 [title_id]
@@ -171,6 +185,7 @@ app.post("/tx/read", async (req, res) => {
         res.status(500).send({ ok: false, error: err.message });
     }
 });
+
 
 // UPDATE using SELECT FOR UPDATE + UPDATE
 app.post("/tx/update", async (req, res) => {
