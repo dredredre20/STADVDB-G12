@@ -78,6 +78,21 @@ let config = {
     lockMode: "strict_2pl"
 };
 
+async function postSync(url, commits) {
+    try {
+        const res = await fetch(url + "/sync", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ commits })
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return await res.json();
+    } catch (err) {
+        log(`SYNC FAILED to ${url}: ${err.message}`);
+        throw err;
+    }
+}
+
 // --- Replication function ---
 async function replicateTransaction(commitEntry) {
     const isCentral = NODE_ID === "1";
@@ -124,6 +139,7 @@ async function replicateTransaction(commitEntry) {
             }
 
             console.log(nodeUpdates)
+
             for (const [url, updatesObj] of Object.entries(nodeUpdates)) {
                 const groupedCommit = {
                     txId: commitEntry.txId,
@@ -146,6 +162,35 @@ async function replicateTransaction(commitEntry) {
         }
     }
 }
+
+app.post("/sync", async (req, res) => {
+    const { commits } = req.body;
+    if (!Array.isArray(commits)) return res.status(400).send({ ok: false, error: "Invalid commits" });
+
+    try {
+        for (const entry of commits) {
+            const conn = await pool.getConnection();
+            await conn.beginTransaction();
+
+            for (const [title, rating] of Object.entries(entry.updates)) {
+                await conn.query(
+                    "UPDATE imdb SET average_rating = ? WHERE title_id = ?",
+                    [rating, title]
+                );
+            }
+
+            await conn.commit();
+            conn.release();
+
+            log(`REPLICATED tx=${entry.txId} from ${entry.sourceNode}`);
+        }
+
+        res.send({ ok: true });
+    } catch (err) {
+        res.status(500).send({ ok: false, error: err.message });
+    }
+});
+
 
 // --------------------------------
 // ROUTES
