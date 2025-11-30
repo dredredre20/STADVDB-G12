@@ -86,7 +86,8 @@ async function postSync(url, commits) {
         const res = await fetch(url + "/sync", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ commits })
+            body: JSON.stringify({ commits }),
+            timeout: 300000
         });
 
         console.log(`[POSTSYNC] Received response: ${res.status} ${res.statusText}`);
