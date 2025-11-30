@@ -176,6 +176,31 @@ async function abortTx() {
     }
 }
 
+async function recoverTx(){
+    const url = getNodeUrl();
+
+    appendLog(`RECOVER NODE at tx=${url}`)
+    try {
+        const res = await fetch(url + "/recover", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ })
+        });
+
+        const json = await res.json();
+        appendLog(json);
+        if (json && json.ok) {
+            alert(`Recovery Completed`);
+        } else {
+            appendLog({ ok: false, error: json && json.error ? json.error : 'Recovery failed' });
+        }
+
+    } catch (err) {
+        appendLog({ ok: false, error: json && json.error ? json.error : 'Abort failed' });
+    }
+}
+
+
 // --- NAVIGATION ---
 function goMonitor() {
     window.location.href = "/monitor";
