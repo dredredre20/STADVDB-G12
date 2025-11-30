@@ -138,6 +138,7 @@ app.post("/tx/begin", async (req, res) => {
 });
 
 // READ inside transaction if exists, otherwise autocommit
+// READ inside transaction if exists, otherwise autocommit
 app.post("/tx/read", async (req, res) => {
     const { txId, title_id } = req.body;
     if (!title_id)
@@ -147,25 +148,28 @@ app.post("/tx/read", async (req, res) => {
         let row = null;
         let tx = txs[txId];
 
-        // If inside transaction
         if (tx && tx.conn) {
             const conn = tx.conn;
 
             if (tx.isolation === "read_uncommitted") {
-                // This forces InnoDB to read current uncommitted version
+                // ⭐ ENABLE TRUE DIRTY READ (no MVCC snapshot)
+                await conn.query("SET SESSION TRANSACTION ISOLATION LEVEL READ UNCOMMITTED");
+
                 const [rows] = await conn.query(
-                    "SELECT * FROM imdb WHERE title_id = ? LIMIT 1 LOCK IN SHARE MODE",
+                    "SELECT * FROM imdb WHERE title_id = ? LIMIT 1",
                     [title_id]
                 );
                 row = rows[0] || null;
-            } else {
+            } 
+            else {
+                // Normal MVCC consistent read
                 const [rows] = await conn.query(
                     "SELECT * FROM imdb WHERE title_id = ? LIMIT 1",
                     [title_id]
                 );
                 row = rows[0] || null;
             }
-        } 
+        }
         else {
             // Autocommit read outside transaction
             const [rows] = await pool.query(
