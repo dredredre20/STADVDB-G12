@@ -419,5 +419,5 @@ app.post("/tx/abort", async (req, res) => {
 // --------------------------------
 
 app.listen(PORT, () => {
-    console.log(`Node ${NODE_ID} running at http://localhost:${PORT}`);
+    console.log(`Node ${NODE_ID} running at http://ccscloud.dlsu.edu.ph:${PORT}`);
 });
