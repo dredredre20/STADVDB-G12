@@ -89,6 +89,9 @@ async function replicateTransaction(commitEntry) {
         const titleIds = Object.keys(commitEntry.updates);
         if (titleIds.length === 0) return;
 
+        console.log(titleIds)
+
+
         try {
             // Query genres for all title_ids
             const placeholders = titleIds.map(() => '?').join(',');
@@ -119,6 +122,8 @@ async function replicateTransaction(commitEntry) {
                     nodeUpdates[url][title] = rating;
                 } 
             }
+
+            console.log(nodeUpdates)
             for (const [url, updatesObj] of Object.entries(nodeUpdates)) {
                 const groupedCommit = {
                     txId: commitEntry.txId,
