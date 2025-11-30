@@ -80,18 +80,38 @@ let config = {
 
 async function postSync(url, commits) {
     try {
+        console.log(`[POSTSYNC] Sending ${commits.length} commit(s) to: ${url}/sync`);
+        
         const res = await fetch(url + "/sync", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ commits })
         });
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        return await res.json();
+
+        console.log(`[POSTSYNC] Received response: ${res.status} ${res.statusText}`);
+
+        // Try to read response body
+        let data;
+        try {
+            data = await res.json();
+            console.log(`[POSTSYNC] Response JSON:`, data);
+        } catch (jsonErr) {
+            console.warn(`[POSTSYNC] Failed to parse JSON response: ${jsonErr.message}`);
+            data = await res.text();
+            console.log(`[POSTSYNC] Response text:`, data);
+        }
+
+        if (!res.ok) {
+            throw new Error(`HTTP ${res.status} - ${res.statusText}`);
+        }
+
+        return data;
     } catch (err) {
-        log(`SYNC FAILED to ${url}: ${err.message}`);
+        console.error(`[POSTSYNC] SYNC FAILED to ${url}:`, err);
         throw err;
     }
 }
+
 
 // --- Replication function ---
 async function replicateTransaction(commitEntry) {
@@ -122,7 +142,7 @@ async function replicateTransaction(commitEntry) {
             }
 
             // Group updates by node URL
-            const nodeUpdates = {};
+            const nodeUpdates = {}; 
             for (const title of titleIds) {
                 const rating = commitEntry.updates[title];
                 const genre = genreMap[title] || null;
@@ -138,7 +158,7 @@ async function replicateTransaction(commitEntry) {
                 } 
             }
 
-            console.log(nodeUpdates)
+            console.log(nodeUpdates) // contains info about the url of the node and the value to be updated
 
             for (const [url, updatesObj] of Object.entries(nodeUpdates)) {
                 const groupedCommit = {
