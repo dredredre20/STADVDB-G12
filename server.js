@@ -418,6 +418,6 @@ app.post("/tx/abort", async (req, res) => {
 // START SERVER
 // --------------------------------
 
-app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Node ${NODE_ID} running at ${process.env.EXTERNAL_URL}`);
+app.listen(PORT, () => {
+    console.log(`Node ${NODE_ID} running at http://localhost:${PORT}`);
 });
