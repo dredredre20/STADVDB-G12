@@ -82,25 +82,6 @@ let config = {
 async function replicateTransaction(commitEntry) {
     const isCentral = NODE_ID === "1";
 
-    // Helper to do the POST /sync call
-    async function postSync(url, commitsPayload) {
-        try {
-            const resp = await fetch(url + "/sync", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ commits: commitsPayload })
-            });
-            const json = await resp.json().catch(() => ({ ok: resp.ok }));
-            if (resp.ok) {
-                log(`Replicated tx=${commitEntry.txId} to ${url}`);
-            } else {
-                log(`Replication FAILED tx=${commitEntry.txId} to ${url}: ${JSON.stringify(json)}`);
-            }
-        } catch (err) {
-            log(`Replication FAILED tx=${commitEntry.txId} to ${url}: ${err.message}`);
-        }
-    }
-
     if (isCentral) {
         // For central node, determine genre for each title_id then group by target node
         const titleIds = Object.keys(commitEntry.updates);

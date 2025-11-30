@@ -121,6 +121,8 @@ async function commitTx() {
     const url = getNodeUrl();
     const txId = document.getElementById("txId").value;
 
+    console.log(url)
+
     appendLog(`COMMIT tx=${txId}`);
     try {
         const res = await fetch(url + "/tx/commit", {
