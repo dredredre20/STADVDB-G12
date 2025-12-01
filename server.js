@@ -10,6 +10,9 @@ const NODE_ID = process.env.NODE_ID || "1";
 // Fix: Align default PORT with the hardcoded NODE_URLS (60148 + index)
 const PORT = process.env.PORT || (60148 + parseInt(NODE_ID) - 1);
 
+// Lock 
+let lockTable = {}; 
+
 const app = express();
 app.use(cors());
 app.use(bodyParser.json());
@@ -265,6 +268,53 @@ app.post("/config", (req, res) => {
 });
 
 // --------------------------------
+// LOCKING HELPERS 
+// --------------------------------
+
+function canAcquireSharedLock(titleId, txId) {
+    const entry = lockTable[titleId];
+    if (!entry) return true; // no lock
+    if (entry.mode === "S") return true; // multiple shared allowed
+    if (entry.mode === "X" && entry.holder === txId) return true; // re-entrant
+    return false;
+}
+
+function canAcquireExclusiveLock(titleId, txId) {
+    const entry = lockTable[titleId];
+    if (!entry) return true; // no lock
+    if (entry.holder === txId) return true; // re-entrant upgrade
+    return false; // Someone else holds a lock
+}
+
+function acquireSharedLock(titleId, txId) {
+    if (!lockTable[titleId]) {
+        lockTable[titleId] = { holder: txId, mode: "S", readers: new Set([txId]) };
+    } else {
+        lockTable[titleId].readers.add(txId);
+    }
+}
+
+function acquireExclusiveLock(titleId, txId) {
+    lockTable[titleId] = { holder: txId, mode: "X" };
+}
+
+function releaseLocks(txId) {
+    for (const key of Object.keys(lockTable)) {
+        const entry = lockTable[key];
+
+        if (entry.mode === "X" && entry.holder === txId) {
+            delete lockTable[key];
+        }
+
+        if (entry.mode === "S" && entry.readers.has(txId)) {
+            entry.readers.delete(txId);
+            if (entry.readers.size === 0) delete lockTable[key];
+        }
+    }
+}
+
+
+// --------------------------------
 // TRANSACTION API (REAL MYSQL TX)
 // --------------------------------
 
@@ -308,6 +358,7 @@ app.post("/tx/begin", async (req, res) => {
 
 
 // READ (dirty-read if RU, snapshot read otherwise)
+// READ (dirty-read if RU, shared/exclusive lock if serializable)
 app.post("/tx/read", async (req, res) => {
     const { txId, title_id } = req.body;
     const tx = txs[txId];
@@ -317,19 +368,71 @@ app.post("/tx/read", async (req, res) => {
     try {
         let row = null;
         const conn = tx.conn;
+        const iso = tx.isolation;
+        const lockMode = config.lockMode;
 
-        // Dirty Read Mode
-        if (tx.isolation === "read_uncommitted") {
+        // --- DIRTY READ (RU) ---
+        if (iso === "read_uncommitted") {
             await conn.query("SET SESSION TRANSACTION ISOLATION LEVEL READ UNCOMMITTED");
-
             const [rows] = await conn.query(
                 "SELECT * FROM imdb WHERE title_id = ? LIMIT 1",
                 [title_id]
             );
             row = rows[0] || null;
+        }
 
-        } else {
-            // Normal MVCC consistent read
+        // --- SERIALIZABLE LOCK LOGIC ---
+        else if (iso === "serializable") {
+
+            // SHARED LOCK
+            if (lockMode === "shared_lock") {
+                const global = await requestGlobalLock(txId, title_id, "S");
+
+                if (!global.ok) {
+                    log(`WAITING-GLOBAL tx=${txId} for S-lock on ${title_id} (held by ${global.holder})`);
+                    return res.status(423).send({ ok: false, waiting: true, holder: global.holder });
+                }
+
+                if (!canAcquireSharedLock(title_id, txId)) {
+                    const holder = lockTable[title_id].holder;
+                    log(`WAITING tx=${txId} for S-lock on ${title_id} (held by ${holder})`);
+                    return res.status(423).send({ ok: false, waiting: true, holder });
+                }
+
+                acquireSharedLock(title_id, txId);
+            }
+
+
+            // EXCLUSIVE LOCK (for reads)
+            else if (lockMode === "exclusive_lock") {
+                const global = await requestGlobalLock(txId, title_id, "X");
+
+                if (!global.ok) {
+                    log(`WAITING-GLOBAL tx=${txId} for X-lock on ${title_id} (held by ${global.holder})`);
+                    return res.status(423).send({ ok: false, waiting: true, holder: global.holder });
+                }
+
+                if (!canAcquireExclusiveLock(title_id, txId)) {
+                    const holder = lockTable[title_id].holder;
+                    log(`WAITING tx=${txId} for X-lock on ${title_id} (held by ${holder})`);
+                    return res.status(423).send({ ok: false, waiting: true, holder });
+                }
+
+                acquireExclusiveLock(title_id, txId);
+            }
+
+            // NO LOCK MODE
+            else {
+                const [rows] = await conn.query(
+                    "SELECT * FROM imdb WHERE title_id = ? LIMIT 1",
+                    [title_id]
+                );
+                row = rows[0] || null;
+            }
+        }
+
+        // --- NORMAL READ (RC/RR) ---
+        else {
             const [rows] = await conn.query(
                 "SELECT * FROM imdb WHERE title_id = ? LIMIT 1",
                 [title_id]
@@ -361,14 +464,34 @@ app.post("/tx/update", async (req, res) => {
     const conn = tx.conn;
 
     try {
-        // Lock row with X-lock
+        // FIRST: request GLOBAL LOCK from Node 1
+        if (tx.isolation === "serializable") {
+            const global = await requestGlobalLock(txId, title_id, "X");
+
+            if (!global.ok) {
+                log(`WAITING-GLOBAL tx=${txId} for X-lock on ${title_id} (held by ${global.holder})`);
+                return res.status(423).send({ ok: false, waiting: true, holder: global.holder });
+            }
+        }
+
+       // SECOND: acquire LOCAL EXCLUSIVE LOCK
+        if (!canAcquireExclusiveLock(title_id, txId)) {
+            const holder = lockTable[title_id].holder;
+            log(`WAITING tx=${txId} for X-lock on ${title_id} (held by ${holder})`);
+            return res.status(423).send({ ok: false, waiting: true, holder });
+        }
+        
+        acquireExclusiveLock(title_id, txId);
+
+
+        // THEN lock the record in MySQL
         const [rows] = await conn.query(
-            "SELECT average_rating FROM imdb WHERE title_id = ? LIMIT 1 FOR UPDATE",
+            "SELECT average_rating FROM imdb WHERE title_id = ?",
             [title_id]
         );
+
         const oldRating = rows[0] ? rows[0].average_rating : null;
 
-        // Buffer write (for replication grouping)
         tx.buffered[title_id] = Number(new_rating);
 
         log(`WRITE-BUFFERED tx=${txId} title=${title_id} old=${oldRating} new=${new_rating}`);
@@ -382,6 +505,7 @@ app.post("/tx/update", async (req, res) => {
         res.status(500).send({ ok: false, error: err.message });
     }
 });
+
 
 
 // COMMIT
@@ -418,6 +542,14 @@ app.post("/tx/commit", async (req, res) => {
         log(`COMMIT tx=${txId}`);
 
         await replicateTransaction(commitEntry);
+
+        await fetch(INTERNAL_URLS[0] + "/global-unlock", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ txId })
+        });
+        releaseLocks(txId);
+
 
         delete txs[txId];
         res.send({ ok: true });
@@ -513,9 +645,87 @@ app.post("/tx/abort", async (req, res) => {
     }
 
     log(`ABORT tx=${txId}`);
+    await fetch(INTERNAL_URLS[0] + "/global-unlock", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ txId })
+    });
+    releaseLocks(txId);
+
     delete txs[txId];
     res.send({ ok: true });
 });
+
+
+//GLOBAL LOCKING MECHANISM
+let globalLockTable = {};
+
+app.post("/global-lock", (req, res) => {
+    const { txId, title_id, mode, nodeId } = req.body;
+
+    const entry = globalLockTable[title_id];
+
+    if (!entry) {
+        globalLockTable[title_id] = { holder: txId, mode, node: nodeId };
+        log(`GLOBAL-LOCK GRANTED tx=${txId} node=${nodeId} title=${title_id} mode=${mode}`);
+        return res.send({ ok: true, granted: true });
+    }
+
+    if (entry.holder === txId) {
+        return res.send({ ok: true, granted: true }); // reentrant
+    }
+
+    log(`GLOBAL-LOCK WAIT tx=${txId} node=${nodeId} title=${title_id} (held by ${entry.holder} on node ${entry.node})`);
+    return res.send({ ok: false, wait: true, holder: entry.holder });
+});
+
+app.post("/global-unlock", (req, res) => {
+    const { txId } = req.body;
+
+    if (!txId) return res.status(400).send({ ok: false, error: "txId required" });
+
+    let unlocked = 0;
+
+    for (const key of Object.keys(globalLockTable)) {
+        const entry = globalLockTable[key];
+
+        if (entry.holder === txId) {
+            delete globalLockTable[key];
+            unlocked++;
+        }
+    }
+
+    log(`GLOBAL-UNLOCK tx=${txId} released ${unlocked} lock(s)`);
+
+    res.send({ ok: true, unlocked });
+});
+
+
+async function requestGlobalLock(txId, title_id, mode) {
+    // Only Node 1 runs global lock manager.
+    const globalManager = INTERNAL_URLS[0]; // Node 1 internal IP
+
+    try {
+        const res = await fetch(globalManager + "/global-lock", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                txId,
+                title_id,
+                mode,
+                nodeId: NODE_ID
+            })
+        });
+
+        const data = await res.json();
+        return data;
+
+    } catch (err) {
+        log(`GLOBAL-LOCK ERROR: ${err.message}`);
+        return { ok: false, error: err.message };
+    }
+}
+
 
 
 // --------------------------------

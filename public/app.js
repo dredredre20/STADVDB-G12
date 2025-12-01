@@ -59,17 +59,18 @@ async function beginTx() {
     const url = getNodeUrl();
     const txId = document.getElementById("txId").value;
     const isolation = document.getElementById("isolationLevel").value;
+    const lock = document.getElementById("transactionLock").value;
 
     // start a new terminal session for this tx
     currentTxId = txId;
     document.getElementById("output").textContent = "";
-    appendLog(`BEGIN tx=${txId} iso=${isolation}`);
+    appendLog(`BEGIN tx=${txId} iso=${isolation} lock=${lock}`);
 
     try {
         const res = await fetch(url + "/tx/begin", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ txId, isolation })
+            body: JSON.stringify({ txId, isolation, lock })
         });
 
         const json = await res.json();
