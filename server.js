@@ -387,48 +387,44 @@ app.post("/tx/read", async (req, res) => {
             // SHARED LOCK
             if (lockMode === "shared_lock") {
                 const global = await requestGlobalLock(txId, title_id, "S");
+                if (!global.ok) return res.status(423).send({ ok: false, waiting: true });
 
-                if (!global.ok) {
-                    log(`WAITING-GLOBAL tx=${txId} for S-lock on ${title_id} (held by ${global.holder})`);
-                    return res.status(423).send({ ok: false, waiting: true, holder: global.holder });
-                }
-
-                if (!canAcquireSharedLock(title_id, txId)) {
-                    const holder = lockTable[title_id].holder;
-                    log(`WAITING tx=${txId} for S-lock on ${title_id} (held by ${holder})`);
-                    return res.status(423).send({ ok: false, waiting: true, holder });
-                }
+                if (!canAcquireSharedLock(title_id, txId))
+                    return res.status(423).send({ ok: false, waiting: true });
 
                 acquireSharedLock(title_id, txId);
-            }
 
-
-            // EXCLUSIVE LOCK (for reads)
-            else if (lockMode === "exclusive_lock") {
+                // >>> FIX: perform the actual read <<<
+                const [rows] = await conn.query(
+                    "SELECT * FROM imdb WHERE title_id = ? LIMIT 1",
+                    [title_id]
+                );
+                row = rows[0] || null;
+            }else if (lockMode === "exclusive_lock") {
                 const global = await requestGlobalLock(txId, title_id, "X");
+                if (!global.ok) return res.status(423).send({ ok: false, waiting: true });
 
-                if (!global.ok) {
-                    log(`WAITING-GLOBAL tx=${txId} for X-lock on ${title_id} (held by ${global.holder})`);
-                    return res.status(423).send({ ok: false, waiting: true, holder: global.holder });
-                }
-
-                if (!canAcquireExclusiveLock(title_id, txId)) {
-                    const holder = lockTable[title_id].holder;
-                    log(`WAITING tx=${txId} for X-lock on ${title_id} (held by ${holder})`);
-                    return res.status(423).send({ ok: false, waiting: true, holder });
-                }
+                if (!canAcquireExclusiveLock(title_id, txId))
+                    return res.status(423).send({ ok: false, waiting: true });
 
                 acquireExclusiveLock(title_id, txId);
-            }
 
-            // NO LOCK MODE
-            else {
+                // >>> FIX: perform the actual read <<<
+                const [rows] = await conn.query(
+                    "SELECT * FROM imdb WHERE title_id = ? LIMIT 1",
+                    [title_id]
+                );
+                row = rows[0] || null;
+            }else {
+                // no-lock mode inside serializable
                 const [rows] = await conn.query(
                     "SELECT * FROM imdb WHERE title_id = ? LIMIT 1",
                     [title_id]
                 );
                 row = rows[0] || null;
             }
+
+
         }
 
         // --- NORMAL READ (RC/RR) ---
