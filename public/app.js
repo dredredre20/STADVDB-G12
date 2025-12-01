@@ -21,13 +21,25 @@ function appendLog(entry) {
 // --- APPLY SETTINGS TO NODE ---
 async function applySettings() {
     console.log("Applying settings...");
+
     const url = getNodeUrl();
     const isolation = document.getElementById("isolationLevel").value;
+
+    // determine lock mode based on isolation level
+    let lockMode = "no_lock";   // default value if not serializable
+
+    if (isolation === "serializable") {
+        // Only allow selecting lock if serializable
+        lockMode = document.getElementById("transactionLock").value;
+    }
 
     const res = await fetch(url + "/config", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ isolation})
+        body: JSON.stringify({
+            isolation,
+            lockMode
+        })
     });
 
     const data = await res.json();
@@ -40,6 +52,7 @@ async function applySettings() {
         writeOutput(data);
     }
 }
+
 
 // --- TRANSACTION ACTIONS ---
 async function beginTx() {
@@ -304,12 +317,28 @@ function checkScheduleAvailability() {
     }
 }
 
+function toggleLockOptions() {
+    const iso = document.getElementById("isolationLevel").value;
+    const lockDiv = document.getElementById("lockContainer");
+    const lockSel = document.getElementById("transactionLock");
+
+    if (iso === "serializable") {
+        lockDiv.style.display = "block";
+        lockSel.disabled = false;
+    } else {
+        lockDiv.style.display = "none";  
+        lockSel.value = "no_lock";        // reset to default
+        lockSel.disabled = true;
+    }
+}
+
 document.addEventListener("DOMContentLoaded", () => {
     const nodeSelect = document.getElementById("nodeUrl");
     nodeSelect.addEventListener("change", checkScheduleAvailability);
 
     // Run once on page load
     checkScheduleAvailability();
+    toggleLockOptions();
 });
 
 
